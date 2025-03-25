@@ -1,0 +1,81 @@
+logfile
+.gradle
+build/
+bin/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+out/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+### Mac ###
+*.DS_Store
+
+*.log
+20200528/
+*.hprof
+local*.sh
+
+## Python ##
+environment/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Downloaded files
+downloads/
+
+run-prod.sh
+run-prod-docker.sh
+run-stg.sh
+run-dev.sh
+run.sh
+
+*.sql
+*.csv
+test-out.json
+
+.ipynb_checkpoints/
