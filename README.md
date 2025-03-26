@@ -52,10 +52,10 @@ The framework allows for programmatic control of web browsers through a simple i
    playwright install
    ```
 
-5. Create a `.env` file with your API keys:
+5. Create a `.env` file with your API keys (you can copy from the provided template):
    ```bash
-   # Create a .env file and add your OpenAI API key
-   echo "OPENAI_API_KEY=your_api_key_here" > .env
+   cp .env.example .env
+   # Then edit .env with your actual API keys
    ```
 
 ## Usage
@@ -102,7 +102,9 @@ show_image_cv2(screenshot, timeout=2)
 
 The project includes example scripts in the `examples/` directory to help you get started:
 
-### Weather Example
+### Browser Automation Examples
+
+#### Weather Example
 
 The `weather_example.py` script demonstrates how to:
 - Launch a browser and navigate to a weather search page
@@ -114,10 +116,10 @@ Run it with:
 python -m examples.weather_example
 ```
 
-### Search Example
+#### Search Example
 
 The `search_example.py` script shows how to:
-- Perform web searches
+- Perform web searches using a browser
 - Interact with search results
 - Process and extract information from search pages
 
@@ -126,7 +128,21 @@ Run it with:
 python -m examples.search_example
 ```
 
-These examples provide a starting point for building more complex browser automation tasks.
+### Web Search API Example
+
+#### Web Search Example
+
+The `web_search_example.py` script demonstrates how to:
+- Use OpenAI's capabilities to simulate web search
+- Perform searches without browser automation
+- Generate plausible content based on URLs
+
+Run it with:
+```bash
+python -m examples.web_search_example
+```
+
+These examples provide a starting point for building more complex automation and search tasks.
 
 ## Project Structure
 
@@ -135,11 +151,15 @@ These examples provide a starting point for building more complex browser automa
     - `computer.py`: Protocol defining the browser interface
     - `base_playwright.py`: Base class for Playwright-based browser automation
     - `local_playwright.py`: Implementation for local browser automation
+  - `web_search/`: Web search implementations
+    - `search.py`: Protocol defining the web search interface
+    - `openai_search.py`: Implementation using OpenAI's web search capability
   - `computers/`: Alternative implementation path (identical to browser_agent)
   - `utils.py`: Utility functions for image handling, URL safety, API communication
 - `examples/`: Example scripts demonstrating usage
-  - `weather_example.py`: Example for checking weather information
-  - `search_example.py`: Example for performing web searches
+  - `weather_example.py`: Example for checking weather information with browser
+  - `search_example.py`: Example for performing web searches with browser
+  - `web_search_example.py`: Example for web searches using OpenAI API
 
 ## Safety Features
 
@@ -152,6 +172,37 @@ BLOCKED_DOMAINS = [
     # Add your own domains to block
 ]
 ```
+
+## Agent Integration
+
+This project is designed to be used with LLM agents by providing a "Computer" tool that gives agents the ability to control a web browser. The agent can be given access to browser controls through a simple protocol interface.
+
+### Computer Protocol
+
+The `Computer` protocol defines the interface an agent can use to control the browser:
+
+```python
+class Computer(Protocol):
+    """Defines the 'shape' (methods/properties) our loop expects."""
+
+    @property
+    def environment(self) -> Literal["windows", "mac", "linux", "browser"]: ...
+    @property
+    def dimensions(self) -> tuple[int, int]: ...
+
+    def screenshot(self) -> str: ...
+    def click(self, x: int, y: int, button: str = "left") -> None: ...
+    def double_click(self, x: int, y: int) -> None: ...
+    def scroll(self, x: int, y: int, scroll_x: int, scroll_y: int) -> None: ...
+    def type(self, text: str) -> None: ...
+    def wait(self, ms: int = 1000) -> None: ...
+    def move(self, x: int, y: int) -> None: ...
+    def keypress(self, keys: List[str]) -> None: ...
+    def drag(self, path: List[Dict[str, int]]) -> None: ...
+    def get_current_url() -> str: ...
+```
+
+When integrated with an agent system, the agent can use this interface to control the browser and perform complex tasks.
 
 ## Utilities
 
