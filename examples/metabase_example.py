@@ -22,8 +22,14 @@ def run_investment_report():
     """
     print("Connecting to Metabase and running investment report...")
     
-    # SQL query to get investments from the last week
-    query = "select * from primary_facade.investment i where i.created_date > now()-interval '1 week';"
+    # SQL query to get investments from the last 2 weeks
+    query = """
+select i.id, i.offering_id, i.status, i.amount, i.request_platform, i.created_date
+from primary_facade.investment i
+where i.created_date > now() - interval '2 week'
+order by i.created_date;
+"""
+
     
     # Create a directory for downloads if it doesn't exist
     downloads_dir = Path.cwd() / "downloads"
