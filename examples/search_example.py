@@ -8,7 +8,7 @@ This example shows how to:
 """
 
 import time
-from app.browser_agent.local_playwright import LocalPlaywrightComputer
+from app.browser_agent.local_playwright import LocalPlaywrightBrowser
 from app.utils import show_image_cv2
 
 def perform_search(query, num_results=3):
@@ -26,31 +26,31 @@ def perform_search(query, num_results=3):
     
     results = []
     
-    with LocalPlaywrightComputer(headless=False) as computer:
+    with LocalPlaywrightBrowser(headless=False) as browser:
         # Navigate to search engine
-        computer.goto("https://www.bing.com")
+        browser.goto("https://www.bing.com")
         
         # Wait for page to load
-        computer.wait(1000)
+        browser.wait(1000)
         
         # Take a screenshot of the search page
-        screenshot = computer.screenshot()
+        screenshot = browser.screenshot()
         show_image_cv2(screenshot, timeout=1)
         
         # Find and click the search box (approximate coordinates)
-        computer.click(500, 300)
+        browser.click(500, 300)
         
         # Type the search query
-        computer.type(query)
+        browser.type(query)
         
         # Press Enter to search
-        computer.keypress(["Enter"])
+        browser.keypress(["Enter"])
         
         # Wait for results to load
-        computer.wait(2000)
+        browser.wait(2000)
         
         # Take a screenshot of the results
-        screenshot = computer.screenshot()
+        screenshot = browser.screenshot()
         show_image_cv2(screenshot, timeout=2)
         
         # This is a placeholder - in a real application, you would:

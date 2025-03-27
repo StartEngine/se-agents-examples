@@ -1,15 +1,15 @@
-from playwright.sync_api import Browser, Page
-from .base_playwright import BasePlaywrightComputer
+from playwright.sync_api import Browser as PlaywrightBrowser, Page
+from .base_playwright_browser import BasePlaywrightBrowser
 
 
-class LocalPlaywrightComputer(BasePlaywrightComputer):
+class LocalPlaywrightBrowser(BasePlaywrightBrowser):
     """Launches a local Chromium instance using Playwright."""
 
     def __init__(self, headless: bool = False):
         super().__init__()
         self.headless = headless
 
-    def _get_browser_and_page(self) -> tuple[Browser, Page]:
+    def _get_browser_and_page(self) -> tuple[PlaywrightBrowser, Page]:
         width, height = self.dimensions
         launch_args = [f"--window-size={width},{height}", "--disable-extensions", "--disable-file-system"]
         browser = self._playwright.chromium.launch(

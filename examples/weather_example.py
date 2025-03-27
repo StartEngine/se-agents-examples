@@ -9,7 +9,7 @@ This example shows how to:
 """
 
 import time
-from app.browser_agent.local_playwright import LocalPlaywrightComputer
+from app.browser_agent.local_playwright import LocalPlaywrightBrowser
 from app.utils import show_image, show_image_cv2
 
 def check_weather(location):
@@ -25,22 +25,22 @@ def check_weather(location):
     print(f"Checking weather for {location}...")
     
     # Create a headless browser instance (set headless=False to see the browser)
-    with LocalPlaywrightComputer(headless=False) as computer:
+    with LocalPlaywrightBrowser(headless=False) as browser:
         # Navigate to Bing for weather search
-        computer.goto(f"https://www.bing.com/search?q=weather+in+{location}")
+        browser.goto(f"https://www.bing.com/search?q=weather+in+{location}")
         
         # Wait for the page to load
-        computer.wait(2000)  # 2 seconds
+        browser.wait(2000)  # 2 seconds
         
         # Take a screenshot
-        screenshot = computer.screenshot()
+        screenshot = browser.screenshot()
         
         # Display the screenshot
         print("Displaying screenshot (will close after 2 seconds)...")
         show_image_cv2(screenshot, timeout=2)
         
         # Print the current URL
-        print(f"Current URL: {computer.get_current_url()}")
+        print(f"Current URL: {browser.get_current_url()}")
         
         # You could also perform interactions here, like:
         # - Clicking on elements
@@ -53,7 +53,7 @@ def check_weather(location):
         return {
             "location": location,
             "checked_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "source": computer.get_current_url()
+            "source": browser.get_current_url()
         }
 
 if __name__ == "__main__":

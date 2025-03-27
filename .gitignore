@@ -78,4 +78,11 @@ run.sh
 *.csv
 test-out.json
 
+metabase_snapshots/
+debug_screenshots/
+metabase_debug.py
+metabase_recording.py
+cache/metabase
+app/metabase_analyzer.py
+
 .ipynb_checkpoints/
