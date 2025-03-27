@@ -508,55 +508,83 @@ class MetabaseAgent:
         logger.info("Downloading query results")
         
         try:
-            # Using direct translation from the Playwright recording
+            # Make sure download directory exists
+            download_dir = Path(download_path)
+            download_dir.mkdir(exist_ok=True)
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
             
-            # Step 1: Click the download button
-            try:
-                browser._page.get_by_test_id("download-button").click()
-                logger.info("Clicked download button using get_by_test_id")
-            except Exception as e:
-                logger.warning(f"Download button click failed: {e}")
-                # Fallback
-                selectors = ["[data-testid='download-button']", "button:contains('Download')"]
-                clicked = False
-                for selector in selectors:
-                    if browser.wait_for_selector(selector, timeout=5000):
-                        browser.click_selector(selector)
-                        clicked = True
-                        break
-                if not clicked:
-                    logger.error("Could not find download button")
-                    return
+            # Create a download listener with expected_file_path
+            expected_file_path = download_dir / f"metabase_query_result_{timestamp}.csv"
             
-            browser.wait(1000)
+            # Create a flag for tracking if download has started
+            download_started = False
             
-            # Step 2: Click the download results (CSV) button
-            try:
-                browser._page.get_by_test_id("download-results-button").click()
-                logger.info("Clicked CSV option using get_by_test_id")
-            except Exception as e:
-                logger.warning(f"CSV option click failed: {e}")
-                # Fallback
-                selectors = ["[data-testid='download-results-button']", "a:contains('CSV')"]
-                clicked = False
-                for selector in selectors:
-                    if browser.wait_for_selector(selector, timeout=3000):
-                        browser.click_selector(selector)
-                        clicked = True
-                        break
-                if not clicked:
-                    logger.error("Could not find CSV option")
-                    return
+            # Set up download listener before clicking download button
+            with browser._page.expect_download() as download_info:
+                # Step 1: Click the download button
+                try:
+                    browser._page.get_by_test_id("download-button").click()
+                    logger.info("Clicked download button using get_by_test_id")
+                except Exception as e:
+                    logger.warning(f"Download button click failed: {e}")
+                    # Fallback
+                    selectors = ["[data-testid='download-button']", "button:contains('Download')"]
+                    clicked = False
+                    for selector in selectors:
+                        if browser.wait_for_selector(selector, timeout=5000):
+                            browser.click_selector(selector)
+                            clicked = True
+                            break
+                    if not clicked:
+                        logger.error("Could not find download button")
+                        return None
+                
+                browser.wait(1000)
+                
+                # Step 2: Click the download results (CSV) button
+                try:
+                    browser._page.get_by_test_id("download-results-button").click()
+                    logger.info("Clicked CSV option using get_by_test_id")
+                    download_started = True
+                except Exception as e:
+                    logger.warning(f"CSV option click failed: {e}")
+                    # Fallback
+                    selectors = ["[data-testid='download-results-button']", "a:contains('CSV')"]
+                    clicked = False
+                    for selector in selectors:
+                        if browser.wait_for_selector(selector, timeout=3000):
+                            browser.click_selector(selector)
+                            clicked = True
+                            download_started = True
+                            break
+                    if not clicked:
+                        logger.error("Could not find CSV option")
+                        return None
             
-            # Wait for download to complete
-            browser.wait(8000)
-            logger.info("Download initiated successfully")
+            # Get the download object if download started
+            if download_started:
+                try:
+                    download = download_info.value
+                    logger.info(f"Download started: {download.suggested_filename}")
+                    
+                    # Save the file to the specified path
+                    download.save_as(expected_file_path)
+                    logger.info(f"File saved to: {expected_file_path}")
+                    
+                    # Wait for download to complete
+                    download_path = download.path()
+                    if download_path:
+                        logger.info(f"Download completed at browser path: {download_path}")
+                    
+                    # Return the path where we saved the file
+                    return str(expected_file_path)
+                except Exception as e:
+                    logger.error(f"Error handling download: {e}")
+            else:
+                logger.error("Download was not initiated properly")
             
         except Exception as e:
             logger.error(f"Error downloading results: {e}")
         
-        # Create path for downloaded file
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        expected_file_path = Path(download_path) / f"metabase_query_result_{timestamp}.csv"
-        
-        return str(expected_file_path)
+        # Return None if we couldn't download the file
+        return None
