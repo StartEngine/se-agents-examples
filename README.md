@@ -38,7 +38,7 @@ The framework allows for programmatic control of web browsers through a simple i
 
 2. Set up a virtual environment:
    ```bash
-   python -m venv venv
+   python3 -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
