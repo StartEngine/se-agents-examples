@@ -21,21 +21,8 @@ def main():
     # Get ticket ID from user
     ticket_id = input("Enter JIRA ticket ID (e.g., PROJ-123): ")
     
-    # Ask user for mode preference
-    print("\nChoose mode:")
-    print("1. Browser mode (uses Playwright for automation)")
-    print("2. API mode (uses JIRA API - currently placeholder)")
-    
-    mode_choice = input("Select mode (1-2) [default: 1]: ")
-    if mode_choice == "2":
-        mode = "api"
-        print("\nUsing API mode (note: this is currently a placeholder implementation)")
-    else:
-        mode = "browser"
-        print("\nUsing Browser mode with Playwright")
-    
     # Initialize the JIRA agent
-    # You can customize these parameters or set them in your .env file
+    # Load environment variables, first trying .env.local
     load_dotenv(dotenv_path='.env.local')  # Try local env first
     if not os.getenv("JIRA_URL"):  # If not found, try .env
         load_dotenv()
@@ -44,19 +31,14 @@ def main():
     jira_url = os.getenv("JIRA_URL")
     jira_username = os.getenv("JIRA_USERNAME")
     jira_password = os.getenv("JIRA_PASSWORD")
-    use_sso = os.getenv("JIRA_USE_SSO", "true").lower() == "true"
     
-    # Set headless mode based on the selected mode (visible browser for debugging in browser mode)
-    headless = (mode == "api")
+    print("\nUsing JIRA API to interact with tickets")
     
-    # Initialize the JIRA agent with the selected mode
+    # Initialize the JIRA agent
     jira_agent = JiraAgent(
         jira_url=jira_url,
         username=jira_username,
-        password=jira_password,
-        use_sso=use_sso,
-        headless=headless,  # Set headless=True for API mode
-        mode=mode
+        password=jira_password
     )
     
     # Display menu of options
@@ -76,9 +58,7 @@ def main():
         # Display ticket information
         print("\nTicket Information:")
         for key, value in ticket_info.items():
-            if key == "_html":
-                print(f"  {key}: [HTML content]")
-            elif key == "comments" and isinstance(value, list):
+            if key == "comments" and isinstance(value, list):
                 print(f"  {key}: {len(value)} comments")
                 if value and len(value) > 0:
                     print(f"    First comment: {value[0]['text'][:100]}..." if len(value[0]['text']) > 100 else f"    First comment: {value[0]['text']}")
