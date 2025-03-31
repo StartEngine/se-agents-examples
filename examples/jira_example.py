@@ -21,6 +21,19 @@ def main():
     # Get ticket ID from user
     ticket_id = input("Enter JIRA ticket ID (e.g., PROJ-123): ")
     
+    # Ask user for mode preference
+    print("\nChoose mode:")
+    print("1. Browser mode (uses Playwright for automation)")
+    print("2. API mode (uses JIRA API - currently placeholder)")
+    
+    mode_choice = input("Select mode (1-2) [default: 1]: ")
+    if mode_choice == "2":
+        mode = "api"
+        print("\nUsing API mode (note: this is currently a placeholder implementation)")
+    else:
+        mode = "browser"
+        print("\nUsing Browser mode with Playwright")
+    
     # Initialize the JIRA agent
     # You can customize these parameters or set them in your .env file
     load_dotenv(dotenv_path='.env.local')  # Try local env first
@@ -33,13 +46,17 @@ def main():
     jira_password = os.getenv("JIRA_PASSWORD")
     use_sso = os.getenv("JIRA_USE_SSO", "true").lower() == "true"
     
-    # Initialize the JIRA agent with headless=False for debugging
+    # Set headless mode based on the selected mode (visible browser for debugging in browser mode)
+    headless = (mode == "api")
+    
+    # Initialize the JIRA agent with the selected mode
     jira_agent = JiraAgent(
         jira_url=jira_url,
         username=jira_username,
         password=jira_password,
         use_sso=use_sso,
-        headless=False  # Set to False for debugging
+        headless=headless,  # Set headless=True for API mode
+        mode=mode
     )
     
     # Display menu of options
