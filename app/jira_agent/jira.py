@@ -20,8 +20,11 @@ from app.memory.selector_memory import SelectorMemory
 from app.jira_agent.auth import is_login_page, login
 from app.jira_agent.selectors import DEFAULT_SELECTORS, FIELD_SELECTORS
 
-# Load environment variables
-load_dotenv(override=True)
+# Load environment variables, first trying .env.local
+load_dotenv(dotenv_path=".env.local", override=True)
+# If .env.local doesn't exist, fall back to .env
+if os.getenv("JIRA_URL") is None and os.path.exists(".env"):
+    load_dotenv(dotenv_path=".env", override=True)
 logger = logging.getLogger(__name__)
 
 

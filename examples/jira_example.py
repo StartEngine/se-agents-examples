@@ -13,8 +13,8 @@ import os
 from dotenv import load_dotenv
 from app.jira_agent import JiraAgent
 
-# Load environment variables
-load_dotenv(override=True)
+# Load environment variables from .env.local file
+load_dotenv(dotenv_path=".env.local", override=True)
 
 def main():
     """Run the JIRA example."""

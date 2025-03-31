@@ -14,8 +14,8 @@ import requests
 from dotenv import load_dotenv
 from app.jira_agent import JiraAgent
 
-# Load environment variables
-load_dotenv(override=True)
+# Load environment variables from .env.local file
+load_dotenv(dotenv_path=".env.local", override=True)
 
 # Define your API endpoint
 # This can be any API that takes JIRA ticket data and returns an analysis
