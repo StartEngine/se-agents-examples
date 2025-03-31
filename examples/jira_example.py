@@ -23,11 +23,23 @@ def main():
     
     # Initialize the JIRA agent
     # You can customize these parameters or set them in your .env file
-    agent = JiraAgent(
-        headless=False,  # Set to True to hide the browser
-        jira_url=os.getenv("JIRA_URL"),
-        use_sso=True,
-        prefer_google=True
+    load_dotenv(dotenv_path='.env.local')  # Try local env first
+    if not os.getenv("JIRA_URL"):  # If not found, try .env
+        load_dotenv()
+    
+    # Get JIRA configuration from environment
+    jira_url = os.getenv("JIRA_URL")
+    jira_username = os.getenv("JIRA_USERNAME")
+    jira_password = os.getenv("JIRA_PASSWORD")
+    use_sso = os.getenv("JIRA_USE_SSO", "true").lower() == "true"
+    
+    # Initialize the JIRA agent with headless=False for debugging
+    jira_agent = JiraAgent(
+        jira_url=jira_url,
+        username=jira_username,
+        password=jira_password,
+        use_sso=use_sso,
+        headless=False  # Set to False for debugging
     )
     
     # Display menu of options
@@ -42,7 +54,7 @@ def main():
     if choice in ("1", "5"):
         # Get ticket information
         print(f"\nGetting information for ticket {ticket_id}...")
-        ticket_info = agent.get_ticket(ticket_id)
+        ticket_info = jira_agent.get_ticket(ticket_id)
         
         # Display ticket information
         print("\nTicket Information:")
@@ -61,7 +73,7 @@ def main():
         # Save ticket data
         save_option = input("\nSave ticket data to file? (y/n): ").lower()
         if save_option == 'y':
-            file_path = agent.save_ticket_data(ticket_info)
+            file_path = jira_agent.save_ticket_data(ticket_info)
             print(f"Ticket data saved to: {file_path}")
     
     if choice in ("2", "5"):
@@ -69,7 +81,7 @@ def main():
         comment_text = input("\nEnter comment text (leave empty to skip): ")
         if comment_text:
             print(f"Adding comment to ticket {ticket_id}...")
-            result = agent.add_comment(ticket_id, comment_text)
+            result = jira_agent.add_comment(ticket_id, comment_text)
             if result:
                 print("Comment added successfully!")
             else:
@@ -90,7 +102,7 @@ def main():
             
         if new_status:
             print(f"Changing status of ticket {ticket_id} to '{new_status}'...")
-            result = agent.change_status(ticket_id, new_status)
+            result = jira_agent.change_status(ticket_id, new_status)
             if result:
                 print("Status changed successfully!")
             else:
@@ -104,9 +116,9 @@ def main():
         analysis_endpoint = input("Enter API endpoint for analysis (leave empty to skip): ")
         
         if analysis_endpoint:
-            analysis_results = agent.analyze_ticket(ticket_id, analysis_endpoint=analysis_endpoint)
+            analysis_results = jira_agent.analyze_ticket(ticket_id, analysis_endpoint=analysis_endpoint)
         else:
-            analysis_results = agent.analyze_ticket(ticket_id)
+            analysis_results = jira_agent.analyze_ticket(ticket_id)
             
         print("\nAnalysis Results:")
         for key, value in analysis_results.items():

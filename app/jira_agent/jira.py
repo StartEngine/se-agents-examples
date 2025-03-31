@@ -75,40 +75,69 @@ class JiraAgent:
         """
         # Default fields to extract if not specified
         if extract_fields is None:
-            extract_fields = ["status", "assignee", "priority", "type"]
+            extract_fields = ["summary", "description"]
             
         logger.info(f"Getting information for ticket {ticket_id}")
         
-        with LocalPlaywrightBrowser(headless=self.headless) as browser:
-            # Navigate to the JIRA ticket
-            ticket_url = f"{self.jira_url}/browse/{ticket_id}"
-            browser.goto(ticket_url)
-            browser.wait(3000)  # Wait for page to load
-            
-            # Check if login is required
-            if is_login_page(browser):
-                logger.info("Login required")
-                login(browser, self.username, self.password, 
-                     use_sso=self.use_sso, prefer_google=self.prefer_google)
+        # Initialize with basic info in case of errors
+        ticket_info = {
+            "id": ticket_id,
+            "url": f"{self.jira_url}/browse/{ticket_id}",
+        }
+        
+        try:
+            with LocalPlaywrightBrowser(headless=self.headless) as browser:
+                # Navigate to the JIRA ticket
+                ticket_url = f"{self.jira_url}/browse/{ticket_id}"
+                logger.info(f"Navigating to {ticket_url}")
+                browser.goto(ticket_url)
                 
-                # Wait for redirect after login
-                browser.wait(5000)
+                # Extra wait to ensure page is fully loaded
+                browser.wait(5000)  # Increased wait time
                 
-                # Navigate to ticket again if needed
-                current_url = browser.get_current_url()
-                if ticket_id not in current_url:
-                    browser.goto(ticket_url)
-                    browser.wait(3000)
-            
-            # Initialize ticket information
-            ticket_info = {
-                "id": ticket_id,
-                "url": browser.get_current_url(),
-            }
-            
-            # Extract ticket fields
-            self._extract_ticket_fields(browser, ticket_info, extract_fields)
-            
+                # Update URL after navigation
+                ticket_info["url"] = browser.get_current_url()
+                
+                # Check if login is required
+                try:
+                    if is_login_page(browser):
+                        logger.info("Login required")
+                        login_success = login(browser, self.username, self.password, 
+                             use_sso=self.use_sso, prefer_google=self.prefer_google)
+                        
+                        if not login_success:
+                            logger.error("Login failed")
+                            ticket_info["error"] = "Login failed"
+                            return ticket_info
+                            
+                        # Wait for redirect after login
+                        browser.wait(5000)
+                        
+                        # Navigate to ticket again if needed
+                        current_url = browser.get_current_url()
+                        if ticket_id not in current_url:
+                            logger.info(f"Navigating back to ticket {ticket_id} after login")
+                            browser.goto(ticket_url)
+                            browser.wait(5000)
+                            
+                            # Update URL after navigation
+                            ticket_info["url"] = browser.get_current_url()
+                except Exception as e:
+                    logger.error(f"Error during login check: {e}")
+                    ticket_info["error"] = f"Login error: {str(e)}"
+                    return ticket_info
+                
+                # Extract ticket fields
+                try:
+                    self._extract_ticket_fields(browser, ticket_info, extract_fields)
+                except Exception as e:
+                    logger.error(f"Error extracting ticket fields: {e}")
+                    ticket_info["error"] = f"Field extraction error: {str(e)}"
+                
+                return ticket_info
+        except Exception as e:
+            logger.error(f"Unexpected error accessing ticket {ticket_id}: {e}")
+            ticket_info["error"] = f"Browser error: {str(e)}"
             return ticket_info
     
     def add_comment(self, ticket_id: str, comment_text: str) -> bool:
@@ -345,6 +374,7 @@ class JiraAgent:
         
         for field in fields_to_extract:
             if field in FIELD_SELECTORS:
+                logger.info(f"Extracting {field}")
                 selector = FIELD_SELECTORS[field]
                 try:
                     # First check if the element exists and is visible
@@ -361,46 +391,68 @@ class JiraAgent:
                         else:
                             logger.debug(f"{field} element not found")
                         
-                        # Try alternative selectors
-                        alt_selector = f"[data-testid*='{field}'], [id*='{field}'], [class*='{field}']"
-                        if browser.wait_for_selector(alt_selector, timeout=1000):
-                            text = browser.extract_text(alt_selector)
-                            ticket_info[field] = text
-                            logger.info(f"Extracted {field} (alt): {text[:50]}..." if len(text) > 50 else f"Extracted {field} (alt): {text}")
+                        # Extended selectors for common fields
+                        if field == "summary":
+                            alt_selectors = [
+                                "h1", 
+                                "[data-testid*='summary']", 
+                                "[id*='summary']", 
+                                "[class*='summary']",
+                                ".issue-header-content h1",
+                                "h1.entry-title",
+                                "#summary-val",
+                                ".ghx-summary"
+                            ]
+                        elif field == "description":
+                            alt_selectors = [
+                                "[data-testid*='description']", 
+                                "[id*='description']", 
+                                "[class*='description']",
+                                "#description-val",
+                                ".user-content-block"
+                            ]
                         else:
+                            alt_selectors = [
+                                f"[data-testid*='{field}']", 
+                                f"[id*='{field}']", 
+                                f"[class*='{field}']"
+                            ]
+                        
+                        # Try each alternative selector
+                        field_found = False
+                        for alt_selector in alt_selectors:
+                            try:
+                                if browser.wait_for_selector(alt_selector, timeout=3000):  # Increased timeout
+                                    text = browser.extract_text(alt_selector)
+                                    ticket_info[field] = text
+                                    logger.info(f"Extracted {field} using {alt_selector}: {text[:50]}..." if len(text) > 50 else f"Extracted {field} using {alt_selector}: {text}")
+                                    field_found = True
+                                    break
+                            except Exception as e:
+                                logger.debug(f"Error with alt selector {alt_selector}: {e}")
+                                continue
+                        
+                        if not field_found:
+                            logger.warning(f"Could not find {field} using any selector")
                             ticket_info[field] = "Not found"
                 except Exception as e:
                     logger.error(f"Error extracting {field}: {e}")
                     ticket_info[field] = "Error extracting"
         
-        # Extract comments as a list if present
-        if "comments" in fields_to_extract:
-            try:
-                comments_selector = FIELD_SELECTORS["comments"]
-                if browser.wait_for_selector(comments_selector, timeout=1000):
-                    # Get all comment elements
-                    comment_elements = browser._page.query_selector_all(comments_selector)
-                    comments = []
-                    for i, element in enumerate(comment_elements, 1):
-                        comment_text = element.text_content()
-                        if comment_text:
-                            comments.append({
-                                "number": i,
-                                "text": comment_text.strip()
-                            })
-                    ticket_info["comments"] = comments
-                    logger.info(f"Extracted {len(comments)} comments")
-                else:
-                    ticket_info["comments"] = []
-            except Exception as e:
-                logger.error(f"Error extracting comments: {e}")
-                ticket_info["comments"] = []
-        
         # As a fallback, get the entire HTML if extraction fails
         if "summary" not in ticket_info or ticket_info["summary"] == "Not found":
             try:
-                # Save HTML for debugging
-                ticket_info["_html"] = browser.get_page_html()
-                logger.info("Saved page HTML as fallback")
+                # Try a broader approach by getting all headings
+                headings = browser.execute_script("""
+                    return Array.from(document.querySelectorAll('h1,h2')).map(el => el.innerText).join('\\n');
+                """)
+                
+                if headings:
+                    logger.info("Found headings as fallback for summary")
+                    ticket_info["summary"] = headings.split('\n')[0]  # Use the first heading
+                else:
+                    # Save HTML for debugging
+                    ticket_info["_html"] = browser.get_page_html()
+                    logger.info("Saved page HTML as fallback")
             except Exception as e:
                 logger.error(f"Error getting page HTML: {e}") 

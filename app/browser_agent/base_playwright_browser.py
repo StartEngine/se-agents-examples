@@ -245,26 +245,35 @@ class BasePlaywrightBrowser(Browser):
         
         Returns a dictionary with element properties like tag, text, attributes, etc.
         """
-        return self._page.evaluate("""
-            selector => {
-                const el = document.querySelector(selector);
-                if (!el) return null;
-                
-                const attributes = {};
-                for (const attr of el.attributes) {
-                    attributes[attr.name] = attr.value;
+        try:
+            # Check if page exists and is not null
+            if not self._page or self._page.is_closed():
+                print("Warning: Page is closed or null")
+                return None
+            
+            return self._page.evaluate("""
+                selector => {
+                    const el = document.querySelector(selector);
+                    if (!el) return null;
+                    
+                    const attributes = {};
+                    for (const attr of el.attributes) {
+                        attributes[attr.name] = attr.value;
+                    }
+                    
+                    return {
+                        tag: el.tagName.toLowerCase(),
+                        text: el.innerText,
+                        html: el.innerHTML,
+                        attributes: attributes,
+                        isVisible: el.offsetWidth > 0 && el.offsetHeight > 0,
+                        boundingBox: el.getBoundingClientRect().toJSON()
+                    };
                 }
-                
-                return {
-                    tag: el.tagName.toLowerCase(),
-                    text: el.innerText,
-                    html: el.innerHTML,
-                    attributes: attributes,
-                    isVisible: el.offsetWidth > 0 && el.offsetHeight > 0,
-                    boundingBox: el.getBoundingClientRect().toJSON()
-                };
-            }
-        """, selector)
+            """, selector)
+        except Exception as e:
+            print(f"Error getting element info: {e}")
+            return None
     
     def fill_form(self, selector: str, value: str) -> None:
         """Fill a form field with the given value."""
@@ -294,3 +303,23 @@ class BasePlaywrightBrowser(Browser):
     def _get_browser_and_page(self) -> tuple[PlaywrightBrowser, Page]:
         """Subclasses must implement, returning (PlaywrightBrowser, Page)."""
         raise NotImplementedError
+
+    def execute_script(self, script: str, *args):
+        """Execute JavaScript in the current page.
+        
+        Args:
+            script: JavaScript code to execute
+            *args: Arguments to pass to the script
+            
+        Returns:
+            Result of the JavaScript execution
+        """
+        try:
+            if not self._page or self._page.is_closed():
+                print("Warning: Page is closed or null")
+                return None
+            
+            return self._page.evaluate(script, *args)
+        except Exception as e:
+            print(f"Error executing script: {e}")
+            return None

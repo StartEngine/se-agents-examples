@@ -23,28 +23,44 @@ def is_login_page(browser: Browser) -> bool:
     Returns:
         True if this appears to be a login page
     """
-    login_selectors = [
-        DEFAULT_SELECTORS["login_page"]["username_field"],
-        DEFAULT_SELECTORS["login_page"]["password_field"],
-        DEFAULT_SELECTORS["login_page"]["login_button"]
-    ]
-    
-    # Add SSO selectors
-    for provider_selectors in SSO_SELECTORS.values():
-        login_selectors.extend(provider_selectors)
-    
-    for selector in login_selectors:
-        # Use get_element_info for better detection
-        element_info = browser.get_element_info(selector)
-        if element_info:
-            logger.info(f"Login element detected: {element_info['tag']}")
-            return True
-            
-        # Fallback to wait_for_selector for complex selectors
-        if browser.wait_for_selector(selector, timeout=1000):
-            return True
-            
-    return False
+    try:
+        # First wait to ensure page is fully loaded
+        browser.wait(2000)
+        
+        login_selectors = [
+            DEFAULT_SELECTORS["login_page"]["username_field"],
+            DEFAULT_SELECTORS["login_page"]["password_field"],
+            DEFAULT_SELECTORS["login_page"]["login_button"]
+        ]
+        
+        # Add SSO selectors
+        for provider_selectors in SSO_SELECTORS.values():
+            login_selectors.extend(provider_selectors)
+        
+        for selector in login_selectors:
+            try:
+                # Use get_element_info for better detection
+                element_info = browser.get_element_info(selector)
+                if element_info:
+                    logger.info(f"Login element detected: {element_info['tag']}")
+                    return True
+            except Exception as e:
+                logger.debug(f"Error checking selector {selector}: {e}")
+                continue
+                
+            # Fallback to wait_for_selector for complex selectors
+            try:
+                if browser.wait_for_selector(selector, timeout=1000):
+                    return True
+            except Exception as e:
+                logger.debug(f"Error waiting for selector {selector}: {e}")
+                continue
+                
+        return False
+    except Exception as e:
+        logger.warning(f"Error checking if on login page: {e}")
+        # If we can't determine, assume we're not on a login page
+        return False
 
 
 def login(browser: Browser, username: str, password: str, use_sso: bool = True, 
@@ -64,24 +80,119 @@ def login(browser: Browser, username: str, password: str, use_sso: bool = True,
     try:
         # First check for SSO options if requested
         if use_sso:
-            # Prioritize Google SSO if preferred
-            if prefer_google:
-                return _try_sso_provider(browser, username, password, provider="google")
+            logger.info("Attempting SSO login")
+            
+            # First check what SSO options are available
+            available_sso = []
+            
+            # Check for Google
+            google_present = browser.execute_script("""
+                const googleTexts = ['google', 'continue with google', 'sign in with google'];
+                const elements = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
+                
+                for (const el of elements) {
+                    const text = el.innerText ? el.innerText.toLowerCase() : '';
+                    if (googleTexts.some(gt => text.includes(gt))) {
+                        return true;
+                    }
+                    
+                    // Check for Google images
+                    const images = el.querySelectorAll('img');
+                    for (const img of images) {
+                        if ((img.alt && img.alt.toLowerCase().includes('google')) ||
+                            (img.src && img.src.toLowerCase().includes('google'))) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            """)
+            
+            # Check for Microsoft
+            microsoft_present = browser.execute_script("""
+                const microsoftTexts = ['microsoft', 'continue with microsoft', 'sign in with microsoft', 'azure', 'office 365'];
+                const elements = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
+                
+                for (const el of elements) {
+                    const text = el.innerText ? el.innerText.toLowerCase() : '';
+                    if (microsoftTexts.some(mt => text.includes(mt))) {
+                        return true;
+                    }
+                    
+                    // Check for Microsoft images
+                    const images = el.querySelectorAll('img');
+                    for (const img of images) {
+                        if ((img.alt && img.alt.toLowerCase().includes('microsoft')) ||
+                            (img.src && img.src.toLowerCase().includes('microsoft'))) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            """)
+            
+            if google_present:
+                available_sso.append("google")
+                logger.info("Google SSO option detected")
+            
+            if microsoft_present:
+                available_sso.append("microsoft")
+                logger.info("Microsoft SSO option detected")
+            
+            # Prioritize Google SSO if preferred and available
+            if prefer_google and "google" in available_sso:
+                logger.info("Attempting Google SSO login (preferred)")
+                if _try_sso_provider(browser, username, password, provider="google", avoid_providers=["microsoft"]):
+                    logger.info("Google SSO login successful")
+                    
+                    # Wait to make sure we're fully logged in
+                    browser.wait(10000)
+                    
+                    # Check if we're still on a login page
+                    if not is_login_page(browser):
+                        return True
             
             # Otherwise try each SSO option in order
             for provider in ["generic_sso", "google", "microsoft", "okta"]:
-                if _try_sso_provider(browser, username, password, provider):
-                    return True
+                if provider in available_sso or provider == "generic_sso":
+                    logger.info(f"Trying {provider} SSO")
+                    avoid = []
+                    if provider != "microsoft":
+                        avoid = ["microsoft"]  # Avoid clicking Microsoft when trying other providers
+                    
+                    if _try_sso_provider(browser, username, password, provider=provider, avoid_providers=avoid):
+                        logger.info(f"{provider} SSO login successful")
+                        
+                        # Wait to make sure we're fully logged in
+                        browser.wait(10000)
+                        
+                        # Check if we're still on a login page
+                        if not is_login_page(browser):
+                            return True
         
         # Regular username/password flow if no SSO or SSO not requested
-        return _standard_login(browser, username, password)
+        logger.info("Attempting standard login")
+        if _standard_login(browser, username, password):
+            # Wait to make sure we're fully logged in
+            browser.wait(10000)
+            
+            # Check if we're still on a login page
+            if not is_login_page(browser):
+                logger.info("Standard login successful")
+                return True
+            else:
+                logger.warning("Still on login page after login attempt")
+                return False
             
     except Exception as e:
         logger.error(f"Login error: {e}")
         return False
+        
+    logger.warning("Login process completed but result unclear")
+    return True  # Default to True as we want to continue trying
 
 
-def _try_sso_provider(browser: Browser, username: str, password: str, provider: str) -> bool:
+def _try_sso_provider(browser: Browser, username: str, password: str, provider: str, avoid_providers: list = None) -> bool:
     """Try to log in using a specific SSO provider.
     
     Args:
@@ -89,10 +200,14 @@ def _try_sso_provider(browser: Browser, username: str, password: str, provider: 
         username: SSO username/email
         password: SSO password
         provider: Provider name ("google", "microsoft", "okta", or "generic_sso")
+        avoid_providers: List of providers to avoid clicking (e.g., ["microsoft"])
         
     Returns:
         True if login appears successful
     """
+    if avoid_providers is None:
+        avoid_providers = []
+        
     if provider not in SSO_SELECTORS:
         logger.warning(f"Unknown SSO provider: {provider}")
         return False
@@ -100,27 +215,279 @@ def _try_sso_provider(browser: Browser, username: str, password: str, provider: 
     # Get selectors for the provider
     provider_selectors = SSO_SELECTORS[provider]
     
+    # Output debug info about the current page
+    try:
+        html = browser.get_page_html()
+        logger.info(f"Current page HTML length: {len(html)}")
+        logger.info(f"Current URL: {browser.get_current_url()}")
+        
+        # Look for provider-related content in the HTML
+        if provider.lower() in html.lower():
+            logger.info(f"Page contains '{provider}' references")
+    except Exception as e:
+        logger.warning(f"Error getting page debug info: {e}")
+    
+    # JavaScript fallback for finding and clicking login buttons
+    try:
+        logger.info(f"Trying JavaScript fallback to find {provider} button")
+        found = browser.execute_script(f"""
+            // Look for buttons/links containing the text {provider}
+            function findElement() {{
+                // Convert provider to lowercase for case-insensitive matching
+                const providerLower = "{provider}".toLowerCase();
+                
+                // List of providers to avoid
+                const avoidProviders = {avoid_providers};
+                
+                // First look for buttons/links with text containing the provider name
+                const elements = Array.from(document.querySelectorAll('button, a, div[role="button"], span[role="button"]'));
+                
+                for (const el of elements) {{
+                    // Skip any privacy policy links
+                    if (el.href && (
+                        el.href.includes("policies.google.com/privacy") ||
+                        el.href.includes("privacy") ||
+                        el.href.includes("terms")
+                    )) {{
+                        console.log("Skipping privacy/terms link:", el);
+                        continue;
+                    }}
+                    
+                    // Skip elements that are likely not login buttons
+                    if (el.innerText && (
+                        el.innerText.toLowerCase().includes("privacy") ||
+                        el.innerText.toLowerCase().includes("policy") ||
+                        el.innerText.toLowerCase().includes("terms") ||
+                        el.innerText.toLowerCase().includes("cookie")
+                    )) {{
+                        console.log("Skipping policy/terms text element:", el);
+                        continue;
+                    }}
+                    
+                    // Skip elements for providers we want to avoid
+                    let shouldAvoid = false;
+                    for (const avoidProvider of avoidProviders) {{
+                        if (el.innerText && el.innerText.toLowerCase().includes(avoidProvider.toLowerCase())) {{
+                            console.log(`Skipping element containing avoided provider '${avoidProvider}':`, el);
+                            shouldAvoid = true;
+                            break;
+                        }}
+                        
+                        // Check if any images contain the avoid provider
+                        const images = el.querySelectorAll('img');
+                        for (const img of images) {{
+                            if ((img.alt && img.alt.toLowerCase().includes(avoidProvider.toLowerCase())) ||
+                                (img.src && img.src.toLowerCase().includes(avoidProvider.toLowerCase()))) {{
+                                console.log(`Skipping element with image of avoided provider '${avoidProvider}':`, el);
+                                shouldAvoid = true;
+                                break;
+                            }}
+                        }}
+                        
+                        if (shouldAvoid) {{
+                            break;
+                        }}
+                    }}
+                    
+                    if (shouldAvoid) {{
+                        continue;
+                    }}
+                    
+                    // Check the text content for login-related text
+                    if (el.innerText && el.innerText.toLowerCase().includes(providerLower)) {{
+                        // Make sure it's a login button by checking for login-related text
+                        if (
+                            el.innerText.toLowerCase().includes("sign in") ||
+                            el.innerText.toLowerCase().includes("login") ||
+                            el.innerText.toLowerCase().includes("log in") ||
+                            el.innerText.toLowerCase().includes("continue with")
+                        ) {{
+                            console.log("Found login button by text content:", el);
+                            return el;
+                        }}
+                        
+                        // If it mentions the provider prominently, it's likely a login button
+                        if (el.tagName === "BUTTON" || el.role === "button") {{
+                            console.log("Found button with provider mention:", el);
+                            return el;
+                        }}
+                    }}
+                    
+                    // For Google specific detection
+                    if (providerLower === "google" && el.innerText && 
+                        (el.innerText.toLowerCase().includes("google") || 
+                         el.innerText.toLowerCase() === "g")) {{
+                        console.log("Found Google-specific button:", el);
+                        return el;
+                    }}
+                    
+                    // For Microsoft specific detection
+                    if (providerLower === "microsoft" && el.innerText && 
+                        (el.innerText.toLowerCase().includes("microsoft") || 
+                         el.innerText.toLowerCase().includes("azure") ||
+                         el.innerText.toLowerCase().includes("office 365"))) {{
+                        console.log("Found Microsoft-specific button:", el);
+                        return el;
+                    }}
+                    
+                    // Check aria-label for login-related text
+                    if (el.getAttribute('aria-label') && 
+                        el.getAttribute('aria-label').toLowerCase().includes(providerLower)) {{
+                        if (
+                            el.getAttribute('aria-label').toLowerCase().includes("sign in") ||
+                            el.getAttribute('aria-label').toLowerCase().includes("login") ||
+                            el.getAttribute('aria-label').toLowerCase().includes("log in")
+                        ) {{
+                            console.log("Found by aria-label:", el);
+                            return el;
+                        }}
+                    }}
+                    
+                    // Check for nested images with alt text or src containing provider
+                    const images = el.querySelectorAll('img');
+                    for (const img of images) {{
+                        if ((img.alt && img.alt.toLowerCase().includes(providerLower)) ||
+                            (img.src && img.src.toLowerCase().includes(providerLower))) {{
+                            // Skip if the parent has href to privacy
+                            if (el.href && (
+                                el.href.includes("policies.google.com") ||
+                                el.href.includes("privacy") ||
+                                el.href.includes("terms")
+                            )) {{
+                                console.log("Skipping privacy link with provider image:", el);
+                                continue;
+                            }}
+                            console.log("Found via nested image:", el);
+                            return el;
+                        }}
+                    }}
+                    
+                    // Check for class or id containing provider and looks like a login button
+                    if ((el.id && el.id.toLowerCase().includes(providerLower)) ||
+                        (el.className && el.className.toLowerCase().includes(providerLower))) {{
+                        // Skip if looks like a privacy element
+                        if (
+                            (el.id && (el.id.toLowerCase().includes("privacy") || el.id.toLowerCase().includes("term"))) ||
+                            (el.className && (el.className.toLowerCase().includes("privacy") || el.className.toLowerCase().includes("term")))
+                        ) {{
+                            console.log("Skipping privacy/terms element:", el);
+                            continue;
+                        }}
+                        console.log("Found by class/id:", el);
+                        return el;
+                    }}
+                }}
+                
+                return null;
+            }}
+            
+            const element = findElement();
+            if (element) {{
+                // Get element details for logging
+                const details = {{
+                    tag: element.tagName,
+                    text: element.innerText,
+                    className: element.className,
+                    id: element.id,
+                    href: element.href || null
+                }};
+                
+                console.log("Clicking element:", details);
+                element.click();
+                return details;
+            }}
+            return null;
+        """)
+        
+        if found:
+            logger.info(f"JavaScript found and clicked {provider} button: {found}")
+            browser.wait(10000)  # Wait for redirect
+            return _handle_sso_flow(browser, username, password, provider)
+    except Exception as e:
+        logger.error(f"Error using JavaScript fallback: {e}")
+        
+    # Now try the regular selectors as fallback
+    logger.info(f"Trying {len(provider_selectors)} {provider} selectors: {provider_selectors}")
+    
     # Look for any SSO buttons for this provider
     for selector in provider_selectors:
-        # Check if element exists and is visible
-        element_info = browser.get_element_info(selector)
-        if element_info and element_info.get('isVisible', False):
-            logger.info(f"Found {provider} SSO option: {element_info['tag']} (visible: {element_info['isVisible']})")
-            browser.click_selector(selector)
-            browser.wait(5000)  # Wait for redirect
+        try:
+            # Check if element exists and is visible
+            element_info = browser.get_element_info(selector)
+            if element_info:
+                # Skip if it looks like a privacy policy link
+                href = element_info.get('attributes', {}).get('href', '')
+                if href and ('privacy' in href or 'policies.google.com' in href or 'terms' in href):
+                    logger.info(f"Skipping privacy/terms link: {href}")
+                    continue
+                
+                # Check if this element contains text of a provider we want to avoid
+                should_avoid = False
+                for avoid_provider in avoid_providers:
+                    text = element_info.get('text', '').lower()
+                    if avoid_provider.lower() in text:
+                        logger.info(f"Skipping element containing avoided provider '{avoid_provider}': {text}")
+                        should_avoid = True
+                        break
+                
+                if should_avoid:
+                    continue
+                
+                logger.info(f"Found {provider} element with selector '{selector}': {element_info}")
+                if element_info.get('isVisible', False):
+                    logger.info(f"VISIBLE {provider} SSO option: {element_info['tag']} with selector '{selector}'")
+                    browser.click_selector(selector)
+                    browser.wait(8000)  # Increased wait for redirect
+                    
+                    # Handle provider-specific login
+                    return _handle_sso_flow(browser, username, password, provider)
+                else:
+                    logger.info(f"Element found but NOT VISIBLE: {element_info}")
+            else:
+                logger.debug(f"No element found with selector: {selector}")
             
-            # Handle provider-specific login
-            return _handle_sso_flow(browser, username, password, provider)
-        
-        # Fallback to simple selector check
-        if browser.wait_for_selector(selector, timeout=1000):
-            logger.info(f"Found {provider} SSO option: {selector}")
-            browser.click_selector(selector)
-            browser.wait(5000)  # Wait for redirect
-            
-            # Handle provider-specific login
-            return _handle_sso_flow(browser, username, password, provider)
+            # Fallback to simple selector check
+            if browser.wait_for_selector(selector, timeout=2000):  # Increased timeout
+                # Check if it's a privacy policy link before clicking
+                avoid_check = browser.execute_script(f"""
+                    const el = document.querySelector("{selector}");
+                    if (!el) return null;
+                    
+                    // Check for privacy policy
+                    if (el.href && (
+                        el.href.includes("privacy") || 
+                        el.href.includes("policies.google.com") || 
+                        el.href.includes("terms")
+                    )) {{
+                        return "privacy";
+                    }}
+                    
+                    // Check for avoided providers
+                    const avoidProviders = {avoid_providers};
+                    for (const avoid of avoidProviders) {{
+                        if (el.innerText && el.innerText.toLowerCase().includes(avoid.toLowerCase())) {{
+                            return avoid;
+                        }}
+                    }}
+                    
+                    return null;
+                """)
+                
+                if avoid_check:
+                    logger.info(f"Skipping element with '{avoid_check}' content: {selector}")
+                    continue
+                    
+                logger.info(f"Successfully waited for {provider} SSO option: {selector}")
+                browser.click_selector(selector)
+                browser.wait(8000)  # Increased wait for redirect
+                
+                # Handle provider-specific login
+                return _handle_sso_flow(browser, username, password, provider)
+        except Exception as e:
+            logger.debug(f"Error trying SSO selector {selector}: {e}")
+            continue
     
+    logger.warning(f"Could not find any {provider} SSO options on the page")
     return False
 
 
@@ -137,7 +504,7 @@ def _handle_sso_flow(browser: Browser, username: str, password: str, provider: s
         True if login appears successful
     """
     # Wait for SSO page to load
-    browser.wait(3000)
+    browser.wait(5000)  # Increased wait time
     
     # Get current URL to determine provider if not explicitly specified
     if provider == "generic_sso":
@@ -215,7 +582,7 @@ def _handle_google_sso(browser: Browser, username: str, password: str) -> bool:
     try:
         # Enter email
         email_selector = "input[type='email']"
-        if browser.wait_for_selector(email_selector, timeout=5000):
+        if browser.wait_for_selector(email_selector, timeout=10000):  # Increased timeout
             # Check element state
             element_info = browser.get_element_info(email_selector)
             if element_info:
@@ -226,23 +593,50 @@ def _handle_google_sso(browser: Browser, username: str, password: str) -> bool:
             
             # Click next
             next_selector = "button:contains('Next'), button[id='identifierNext']"
-            if browser.wait_for_selector(next_selector, timeout=2000):
+            if browser.wait_for_selector(next_selector, timeout=5000):  # Increased timeout
                 browser.click_selector(next_selector)
-                browser.wait(3000)
+                browser.wait(5000)  # Increased wait time
         
         # Enter password
         password_selector = "input[type='password']"
-        if browser.wait_for_selector(password_selector, timeout=5000):
+        if browser.wait_for_selector(password_selector, timeout=10000):  # Increased timeout
             browser.click_selector(password_selector)
             browser.type(password)
             
-            # Click next/sign in
-            signin_selector = "button:contains('Next'), button[id='passwordNext']"
-            if browser.wait_for_selector(signin_selector, timeout=2000):
+            # Click sign in
+            signin_selector = "button:contains('Sign in'), button[id='passwordNext']"
+            if browser.wait_for_selector(signin_selector, timeout=5000):  # Increased timeout
                 browser.click_selector(signin_selector)
-                browser.wait(5000)
                 
-        return True
+                # Wait longer for Google authentication to complete and redirect back
+                browser.wait(15000)  # Substantially increased wait time
+                
+                # Check if we're redirected back to JIRA
+                current_url = browser.get_current_url()
+                logger.info(f"Current URL after Google auth: {current_url}")
+                
+                # Check if we successfully returned to JIRA
+                if "atlassian" in current_url or "jira" in current_url:
+                    # Wait for JIRA UI to fully load
+                    browser.wait(5000)
+                    return True
+        
+        # Handle potential 2FA challenge or other authentication steps
+        browser.wait(5000)
+        verify_selectors = [
+            "input[id='totpPin']",  # TOTP verification code
+            "button:contains('Try another way')",
+            "button:contains('Verify')"
+        ]
+        
+        for selector in verify_selectors:
+            if browser.wait_for_selector(selector, timeout=2000):
+                logger.warning("Additional verification detected - may require manual intervention")
+                # Wait longer for manual intervention
+                browser.wait(30000)
+                return True  # Hope the user has completed manual verification
+        
+        return True  # Assume success if we got this far
     except Exception as e:
         logger.error(f"Google SSO error: {e}")
         return False

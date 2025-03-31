@@ -17,7 +17,17 @@ DEFAULT_SELECTORS = {
                 "a:contains('Google')",
                 "button:contains('Google')",
                 "button[data-provider='google']",
-                "div:contains('Google') button"
+                "div:contains('Google') button",
+                "a[data-provider='google']",
+                "a.google",
+                "a[href*='google']",
+                ".google-button",
+                "[id*='google']",
+                "[class*='google']",
+                "button[data-testid*='google']",
+                "img[alt*='Google']",
+                "img[src*='google']",
+                "*[aria-label*='Google']"
             ],
             "microsoft": [
                 "button:contains('Continue with Microsoft')",
