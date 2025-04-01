@@ -22,28 +22,40 @@ DEFAULT_ANTHROPIC_MODEL = "claude-3-opus-20240229"  # For Anthropic
 
 
 def select_api_with_llm(
-    ticket_data: str,
+    ticket_data: Dict[str, Any],
     documentation: Union[Dict, str], 
     llm_api_key: Optional[str] = None,
     llm_api_url: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Use an LLM to parse API documentation and extract endpoints intelligently.
+    Use an LLM to analyze API documentation and ticket data to select the best endpoint.
     
     Args:
+        ticket_data: Dictionary containing ticket information
         documentation: API documentation as text or JSON
         llm_api_key: API key for the LLM service (OpenAI, Anthropic, etc.)
         llm_api_url: URL for the LLM API endpoint
         
     Returns:
-        Dictionary with extracted endpoints and usage information
+        Dictionary with selected endpoint, parameters, and relevant ticket information
     """
     if not documentation:
         logger.warning("No documentation provided for parsing")
-        return {"endpoints": [], "analysis_endpoint": None}
+        return {"endpoint": None, "relevant_info": None, "endpoint_params": {}}
     
     # Convert documentation to string if it's a dictionary
     doc_text = json.dumps(documentation) if isinstance(documentation, dict) else str(documentation)
+    
+    # Extract key ticket information for the prompt
+    ticket_id = ticket_data.get("id", "")
+    summary = ticket_data.get("summary", "")
+    description = ticket_data.get("description", "")
+    assignee = ticket_data.get("assignee", {})
+    assignee_email = ""
+    if isinstance(assignee, dict):
+        assignee_email = assignee.get("emailAddress", "")
+    elif isinstance(assignee, str):
+        assignee_email = assignee
     
     # Check if we have an LLM API key (from args or environment)
     llm_api_key = llm_api_key or os.getenv("LLM_API_KEY", "")
@@ -51,31 +63,49 @@ def select_api_with_llm(
     
     if not llm_api_key:
         logger.warning("No LLM API key provided. Using rule-based parsing as fallback.")
-        return extract_endpoints_rule_based(documentation)
+        endpoints = extract_endpoints_rule_based(documentation)
+        return {
+            "endpoint": endpoints.get("analysis_endpoint"),
+            "relevant_info": None,
+            "endpoint_params": {}
+        }
     
     try:
-        logger.info("Using LLM to intelligently parse API documentation...")
+        logger.info("Using LLM to intelligently select API endpoint based on ticket data")
         
         # Prepare prompt for the LLM
         prompt = f"""
-        You are an AI assistant helping to parse API documentation and extract useful information.
-        You are also given the description of the JIRA ticket that the user has submitted.
-        In the API documentation you are given there are infomration about the endpoints, the intent recogintion, and a few examples of when to use each endpoint.
-        Please analyze this API documentation along with the JIRA ticket description and extract the following information:
-        1. Which endpoint would be best for handling the JIRA ticket request
-        2. Which information from the JIRA ticket description is relevant to the endpoint
+        You are an AI assistant helping to analyze a JIRA ticket and determine the appropriate API endpoint to call.
         
-        Here's the documentation:
+        JIRA Ticket Information:
+        ID: {ticket_id}
+        Summary: {summary}
+        Description: {description}
+        Assignee Email: {assignee_email}
+        
+        API Documentation:
         {doc_text[:4000]}  # Truncate if too large
-
-        Here's the JIRA ticket description:
-        {ticket_data}
+        
+        Task:
+        1. Analyze the JIRA ticket to identify what action needs to be performed
+        2. Determine the most appropriate API endpoint to call based on the documentation
+        3. Extract specific information from the ticket that would be needed as parameters for the API call
+        4. Identify the required parameters for the selected endpoint
         
         Response format:
         {{
-            "endpoint": Result from 1.,
-            "relevant_info": Result from 2.
+            "endpoint": "The most appropriate endpoint path",
+            "relevant_info": {{
+                "extracted_values_from_ticket": "that_are_relevant",
+                "can_include_multiple": "key_value_pairs"
+            }},
+            "endpoint_params": {{
+                "param_name": "description of what this parameter requires",
+                "another_param": "another description"
+            }}
         }}
+        
+        Please return ONLY valid JSON in exactly the format specified. No additional text.
         """
         
         # Make request to LLM API
@@ -114,8 +144,18 @@ def select_api_with_llm(
             try:
                 # Parse the JSON response
                 extracted_data = json.loads(content)
-                logger.info(f"LLM successfully parsed documentation and found {len(extracted_data.get('endpoints', []))} endpoints")
+                logger.info(f"LLM successfully analyzed ticket and selected endpoint: {extracted_data.get('endpoint')}")
+                
+                # Ensure the response has the expected structure
+                if "endpoint" not in extracted_data:
+                    extracted_data["endpoint"] = None
+                if "relevant_info" not in extracted_data:
+                    extracted_data["relevant_info"] = {}
+                if "endpoint_params" not in extracted_data:
+                    extracted_data["endpoint_params"] = {}
+                    
                 return extracted_data
+                
             except json.JSONDecodeError:
                 logger.error(f"Failed to parse LLM response as JSON: {content[:100]}...")
                 # Try to extract JSON from the content if it's embedded in other text
@@ -123,7 +163,16 @@ def select_api_with_llm(
                 if json_match:
                     try:
                         extracted_data = json.loads(json_match.group(1))
-                        logger.info(f"Extracted JSON from LLM response and found {len(extracted_data.get('endpoints', []))} endpoints")
+                        logger.info(f"Extracted JSON from LLM response with endpoint: {extracted_data.get('endpoint')}")
+                        
+                        # Ensure the response has the expected structure
+                        if "endpoint" not in extracted_data:
+                            extracted_data["endpoint"] = None
+                        if "relevant_info" not in extracted_data:
+                            extracted_data["relevant_info"] = {}
+                        if "endpoint_params" not in extracted_data:
+                            extracted_data["endpoint_params"] = {}
+                            
                         return extracted_data
                     except:
                         pass
@@ -132,12 +181,64 @@ def select_api_with_llm(
         
         # If we get here, something went wrong with the LLM parsing
         logger.warning("Falling back to rule-based parsing")
-        return extract_endpoints_rule_based(documentation)
+        endpoints = extract_endpoints_rule_based(documentation)
+        return {
+            "endpoint": endpoints.get("analysis_endpoint"),
+            "relevant_info": extract_ticket_info(ticket_data),
+            "endpoint_params": {}
+        }
         
     except Exception as e:
-        logger.exception(f"Error using LLM to parse documentation: {e}")
+        logger.exception(f"Error using LLM to select API endpoint: {e}")
         logger.warning("Falling back to rule-based parsing")
-        return extract_endpoints_rule_based(documentation)
+        endpoints = extract_endpoints_rule_based(documentation)
+        return {
+            "endpoint": endpoints.get("analysis_endpoint"),
+            "relevant_info": extract_ticket_info(ticket_data),
+            "endpoint_params": {}
+        }
+
+
+def extract_ticket_info(ticket_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Extract relevant information from a ticket for API calls.
+    Used as a fallback when LLM parsing fails.
+    
+    Args:
+        ticket_data: Dictionary containing ticket information
+        
+    Returns:
+        Dictionary with extracted information
+    """
+    info = {}
+    
+    # Extract email from description or summary
+    description = ticket_data.get("description", "")
+    summary = ticket_data.get("summary", "")
+    
+    # Try to find an email in the description or summary
+    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+    email_matches = []
+    
+    if isinstance(description, str):
+        email_matches = re.findall(email_pattern, description)
+    if not email_matches and isinstance(summary, str):
+        email_matches = re.findall(email_pattern, summary)
+    
+    if email_matches:
+        info["email"] = email_matches[0]
+    
+    # Add ticket ID and assignee
+    info["ticket_id"] = ticket_data.get("id", "")
+    
+    assignee = ticket_data.get("assignee", {})
+    if isinstance(assignee, dict):
+        info["assignee"] = assignee.get("displayName", "")
+        info["assignee_email"] = assignee.get("emailAddress", "")
+    elif isinstance(assignee, str):
+        info["assignee"] = assignee
+    
+    return info
 
 
 def extract_endpoints_rule_based(documentation: Union[Dict, str]) -> Dict[str, Any]:

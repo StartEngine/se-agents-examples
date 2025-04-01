@@ -5,20 +5,18 @@ This example shows how to:
 1. Initialize the JIRA agent
 2. Extract data from JIRA tickets
 3. Send ticket data to an external API for analysis
-4. Post the analysis results back as a comment
+4. Display the API response
 """
 
 import os
 import json
-import re
 import requests
 from dotenv import load_dotenv
 from app.jira_agent import (
     JiraAgent, 
     select_api_with_llm,
     extract_endpoints_rule_based,
-    get_api_documentation,
-    determine_headers
+    get_api_documentation
 )
 
 # Load environment variables from .env.local file
@@ -41,7 +39,7 @@ def analyze_with_api(ticket_data):
         ticket_data: Dictionary containing ticket information
         
     Returns:
-        Dictionary with analysis results or error message
+        API response text
     """
     print(f"Connecting to API at: {API_ENDPOINT}")
     
@@ -50,113 +48,104 @@ def analyze_with_api(ticket_data):
     
     if not api_documentation:
         print("Could not retrieve API documentation")
-        api_analysis_result = {"endpoints": [], "analysis_endpoint": None}
+        api_analysis_result = {"endpoint": None, "relevant_info": None, "endpoint_params": {}}
     else:
-        # Use the refactored LLM parser
-        api_analysis_result = select_api_with_llm(
-            ticket_data,
-            api_documentation, 
-            llm_api_key=LLM_API_KEY,
-            llm_api_url=LLM_API_URL
-        )
+        try:
+            # Use the refactored LLM parser
+            api_analysis_result = select_api_with_llm(
+                ticket_data,
+                api_documentation, 
+                llm_api_key=LLM_API_KEY,
+                llm_api_url=LLM_API_URL
+            )
+            
+            # Make sure api_analysis_result is a dictionary
+            if not isinstance(api_analysis_result, dict):
+                print(f"Warning: Expected dictionary from select_api_with_llm but got {type(api_analysis_result)}")
+                api_analysis_result = {"endpoint": None, "relevant_info": str(api_analysis_result), "endpoint_params": {}}
+        except Exception as e:
+            print(f"Error during API documentation analysis: {e}")
+            api_analysis_result = {"endpoint": None, "relevant_info": None, "endpoint_params": {}}
+    
+    # Safely get values from api_analysis_result
+    selected_endpoint = None
+    relevant_info = None
+    endpoint_params = {}
+    
+    if isinstance(api_analysis_result, dict):
+        selected_endpoint = api_analysis_result.get("endpoint")
+        relevant_info = api_analysis_result.get("relevant_info")
+        endpoint_params = api_analysis_result.get("endpoint_params", {})
+    
+    # Display the endpoints found
+    print(f"Selected endpoint: {selected_endpoint}")
+    
+    # Display additional information if provided by the LLM
+    if relevant_info:
+        print(f"Relevant information from ticket: {relevant_info}")
         
-        # Display the endpoints found
-        selected_endpoint = api_analysis_result.get("endpoint", [])
-        print(f"Selected endpoint: {selected_endpoint}")
-        
-        # Display additional information if provided by the LLM
-        if "relevant_info" in api_analysis_result:
-            print(f"Relevant information from ticket: {api_analysis_result['relevant_info']}")
+    if endpoint_params:
+        print(f"Required parameters for endpoint: {endpoint_params}")
     
     # Now proceed with the actual analysis
     print(f"\nSending ticket data to API for analysis...")
     
     try:
-        # In a real implementation, you would do:
-        full_url = f"{API_ENDPOINT.rstrip('/')}{selected_endpoint}"
-        print(f"Using endpoint: {full_url}")
+        # Use default endpoint if none was selected
+        if not selected_endpoint:
+            selected_endpoint = "/api/v1/analyze"
+            print(f"No endpoint selected, using default: {selected_endpoint}")
+            
+        # Build the request URL
+        base_url = f"{API_ENDPOINT.rstrip('/')}{selected_endpoint}"
         
-        # Use the utility to determine headers based on documentation
-        headers = determine_headers(api_analysis_result, API_KEY)
+        # Create headers for API request
+        headers = {}
+        if API_KEY:
+            headers["Authorization"] = f"Bearer {API_KEY}"
+            
+        # Prepare request parameters based on relevant_info and endpoint_params
+        request_params = {}
+        if isinstance(relevant_info, dict):
+            # For each parameter required by the endpoint, try to find it in relevant_info
+            if endpoint_params:
+                for param_name in endpoint_params.keys():
+                    if param_name in relevant_info:
+                        request_params[param_name] = relevant_info[param_name]
+            else:
+                # If we don't have endpoint_params, just use all relevant_info
+                request_params = relevant_info
         
-        # Try to make the actual API call
-        # Uncomment this in real implementation:
-        # response = requests.post(full_url, json=ticket_data, headers=headers)
-        # if response.status_code == 200:
-        #     return response.json()
+        # Include some ticket information if not already in request_params
+        if "ticket_id" not in request_params and "id" in ticket_data:
+            request_params["ticket_id"] = ticket_data["id"]
         
-        # For this example, we'll simulate a response with simplified content
-        simulation_response = {
-            "analysis": {
-                # Only include necessary fields
-                "user_account_status": "Active"
-            },
-            "api_info": {
-                "documentation_available": bool(api_documentation),
-                "endpoints_found": api_analysis_result.get("endpoints", []),
-                "endpoint_used": selected_endpoint,
-                "llm_parsed": True,
-                "auth_method": api_analysis_result.get("auth_method", "Not specified")
-            }
-        }
+        if "email" not in request_params and isinstance(relevant_info, dict) and "email" in relevant_info:
+            request_params["email"] = relevant_info["email"]
         
-        # Add email to response if available
-        if "user_email" in ticket_data and ticket_data["user_email"]:
-            simulation_response["analysis"]["user_email"] = ticket_data["user_email"]
+        # Build the final URL with parameters
+        url_params = "&".join([f"{k}={v}" for k, v in request_params.items()])
+        if "?" not in base_url:
+            full_url = f"{base_url}?{url_params}" if url_params else base_url
+        else:
+            full_url = f"{base_url}&{url_params}" if url_params else base_url
+            
+        print(f"Making GET request to: {full_url}")
         
-        return simulation_response
+        # Make the actual API call (GET method only)
+        response = requests.get(full_url, headers=headers)
+        
+        if response.status_code == 200:
+            return response.text
+        else:
+            error_message = f"API call failed with status {response.status_code}: {response.text[:100]}"
+            print(error_message)
+            return error_message
         
     except Exception as e:
-        print(f"Error during API analysis: {e}")
-        return {
-            "error": str(e),
-            "message": "Failed to analyze ticket"
-        }
-
-
-def format_analysis_comment(analysis_results):
-    """
-    Format analysis results as a markdown comment for JIRA.
-    
-    Args:
-        analysis_results: Dictionary with analysis results
-        
-    Returns:
-        Formatted comment text
-    """
-    comment = "**Automated Analysis Results**\n\n"
-    
-    # Get analysis section
-    analysis = analysis_results.get("analysis", {})
-    
-    # Add user email if available
-    if "user_email" in analysis:
-        comment += f"**User Email**: {analysis['user_email']}\n"
-    
-    # Add account status if available
-    if "user_account_status" in analysis:
-        comment += f"**Account Status**: {analysis['user_account_status']}\n"
-    
-    comment += "\n"
-    
-    # Add API information if available
-    api_info = analysis_results.get("api_info", {})
-    if api_info:
-        comment += "**API Information**:\n"
-        comment += f"- Documentation Available: {api_info.get('documentation_available', False)}\n"
-        comment += f"- Endpoint Used: {api_info.get('endpoint_used', 'Unknown')}\n"
-        
-        # Add list of available endpoints (first 3 only to keep comment concise)
-        endpoints = api_info.get("endpoints_found", [])
-        if endpoints:
-            comment += f"- Available Endpoints ({len(endpoints)} total): "
-            if len(endpoints) <= 3:
-                comment += ", ".join(endpoints)
-            else:
-                comment += ", ".join(endpoints[:3]) + f", ... ({len(endpoints) - 3} more)"
-            comment += "\n"
-    
-    return comment
+        error_message = f"Error during API analysis: {e}"
+        print(error_message)
+        return error_message
 
 
 def main():
@@ -175,59 +164,31 @@ def main():
     print(f"\nGetting information for ticket {ticket_id}...")
     ticket_info = agent.get_ticket(
         ticket_id, 
-        extract_fields=["summary", "description"]
+        extract_fields=["summary", "description", "assignee"]
     )
-    
-    # Extract email from description if present
-    description = ticket_info.get("description", "")
     
     # Display basic ticket information
     print(f"\nTicket: {ticket_info.get('id')}")
     print(f"Summary: {ticket_info.get('summary', 'Unknown')}")
-    print(f"Status: {ticket_info.get('status', 'Unknown')}")
+    print(f"Assignee: {ticket_info.get('assignee', 'Unknown')}")
     
-    # Analyze with external API (or simulation)
+    # Analyze with external API
     print("\nSending to API for analysis...")
-    analysis_results = analyze_with_api(ticket_info)
+    api_response = analyze_with_api(ticket_info)
     
-    # Display analysis results
-    print("\nAnalysis Results:")
-    print(json.dumps(analysis_results, indent=2))
+    # Display raw API response
+    print("\nAPI Response:")
+    print(api_response)
     
-    # Format as comment
-    comment_text = format_analysis_comment(analysis_results)
-    print("\nFormatted Comment:")
-    print(comment_text)
-    
-    # Ask if we should post the analysis as a comment
-    post_comment = input("\nPost analysis as comment to JIRA ticket? (y/n): ").lower() == 'y'
+    # Ask if we should post the API response as a comment to JIRA
+    post_comment = input("\nPost API response as comment to JIRA ticket? (y/n): ").lower() == 'y'
     if post_comment:
-        print(f"Adding analysis as comment to ticket {ticket_id}...")
-        result = agent.add_comment(ticket_id, comment_text)
+        print(f"Adding API response as comment to ticket {ticket_id}...")
+        result = agent.add_comment(ticket_id, api_response)
         if result:
-            print("Analysis comment added successfully!")
+            print("API response comment added successfully!")
         else:
-            print("Failed to add analysis comment.")
-    
-    # Save analysis to file
-    save_option = input("\nSave full analysis to file? (y/n): ").lower()
-    if save_option == 'y':
-        # Create results dict with both ticket info and analysis
-        combined_results = {
-            "ticket_info": ticket_info,
-            "analysis": analysis_results
-        }
-        
-        # Save file
-        output_dir = os.path.join(os.getcwd(), "analysis_results")
-        os.makedirs(output_dir, exist_ok=True)
-        filename = f"{ticket_id.replace('-', '_').lower()}_analysis.json"
-        filepath = os.path.join(output_dir, filename)
-        
-        with open(filepath, 'w') as f:
-            json.dump(combined_results, f, indent=2)
-            
-        print(f"Analysis saved to: {filepath}")
+            print("Failed to add comment.")
     
     print("\nJIRA API integration example completed!")
     
