@@ -1017,6 +1017,32 @@ if __name__ == "__main__":
             if all_offerings_data:
                 print(f"Average raised per offering: ${total_amount/len(all_offerings_data):,.2f}")
             
+            # Calculate aggregate metrics with robust conversion to handle None values
+            def safe_int(val, default=0):
+                try:
+                    return int(val) if val is not None else default
+                except (ValueError, TypeError):
+                    return default
+                    
+            def safe_float(val, default=0.0):
+                try:
+                    return float(val) if val is not None else default
+                except (ValueError, TypeError):
+                    return default
+            
+            total_investors = sum(safe_int(data.get('investors_total', 0)) for data in all_offerings_data.values())
+            total_7d_amount = sum(safe_float(data.get('amount_raised_7d', 0)) for data in all_offerings_data.values())
+            total_30d_amount = sum(safe_float(data.get('amount_raised_30d', 0)) for data in all_offerings_data.values())
+            total_7d_investors = sum(safe_int(data.get('investors_7d', 0)) for data in all_offerings_data.values())
+            total_30d_investors = sum(safe_int(data.get('investors_30d', 0)) for data in all_offerings_data.values())
+            
+            # Print aggregate metrics
+            print(f"Total investors across all offerings: {total_investors:,}")
+            print(f"Total amount raised in last 7 days: ${total_7d_amount:,.2f}")
+            print(f"Total amount raised in last 30 days: ${total_30d_amount:,.2f}")
+            print(f"Total new investors in last 7 days: {total_7d_investors:,}")
+            print(f"Total new investors in last 30 days: {total_30d_investors:,}")
+            
             # List offerings sorted by amount raised
             print("\nOfferings by amount raised (high to low):")
             sorted_slugs = sorted(
@@ -1025,9 +1051,25 @@ if __name__ == "__main__":
                 reverse=True
             )
             
+            # More detailed offering information in the summary
             for i, slug in enumerate(sorted_slugs, 1):
                 data = all_offerings_data[slug]
-                print(f"{i}. {slug}: {data.get('amount_raised_formatted', '$0.00')}")
+                print(f"\n{i}. {slug}")
+                print(f"   Total Amount Raised: {data.get('amount_raised_formatted', '$0.00')}")
+                print(f"   Total Investors: {safe_int(data.get('investors_total', 0)):,}")
+                
+                # 7-day metrics
+                print(f"   Last 7 Days:")
+                print(f"     Amount Raised: {data.get('amount_raised_7d_formatted', '$0.00')}")
+                print(f"     New Investors: {safe_int(data.get('investors_7d', 0)):,}")
+                
+                # 30-day metrics
+                print(f"   Last 30 Days:")
+                print(f"     Amount Raised: {data.get('amount_raised_30d_formatted', '$0.00')}")
+                print(f"     New Investors: {safe_int(data.get('investors_30d', 0)):,}")
+                
+                # Add a separator between offerings
+                print("-" * 50)
                 
     except Exception as e:
         print(f"Error running script: {e}")
