@@ -13,15 +13,24 @@ import json
 import re
 import requests
 from dotenv import load_dotenv
-from app.jira_agent import JiraAgent
+from app.jira_agent import (
+    JiraAgent, 
+    parse_api_docs_with_llm,
+    extract_endpoints_rule_based,
+    get_api_documentation,
+    determine_headers
+)
 
 # Load environment variables from .env.local file
 load_dotenv(dotenv_path=".env.local", override=True)
 
 # Define your API endpoint
 # This can be any API that takes JIRA ticket data and returns an analysis
-API_ENDPOINT = os.getenv("PROD_SUPPORT_API_URL", "http://localhost:8000/")
+API_ENDPOINT = os.getenv("PROD_SUPPORT_API_URL", "http://localhost:8080/")
 API_KEY = os.getenv("ANALYSIS_API_KEY", "")
+# Optional: Add LLM API key for documentation parsing
+LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+LLM_API_URL = os.getenv("LLM_API_URL", "https://api.openai.com/v1/chat/completions")
 
 
 def extract_email_from_text(text):
@@ -54,37 +63,90 @@ def analyze_with_api(ticket_data):
     Returns:
         Dictionary with analysis results or error message
     """
-    # This is a simulation - in a real example, you would call your actual API
-    # For demonstration, we'll simulate an API response
+    print(f"Connecting to API at: {API_ENDPOINT}")
     
-    print(f"Sending data to API: {API_ENDPOINT}")
+    # Get API documentation using the refactored utility
+    api_documentation, content_type = get_api_documentation(API_ENDPOINT, "/docs/guide")
     
-    # In a real implementation, you would do:
-    # headers = {"Authorization": f"Bearer {API_KEY}"}
-    # response = requests.post(API_ENDPOINT, json=ticket_data, headers=headers)
-    # return response.json()
+    if not api_documentation:
+        print("Could not retrieve API documentation")
+        parsed_docs = {"endpoints": [], "analysis_endpoint": None}
+    else:
+        # Use the refactored LLM parser
+        parsed_docs = parse_api_docs_with_llm(
+            api_documentation, 
+            llm_api_key=LLM_API_KEY,
+            llm_api_url=LLM_API_URL
+        )
+        
+        # Display the endpoints found
+        available_endpoints = parsed_docs.get("endpoints", [])
+        print(f"Found {len(available_endpoints)} available endpoints")
+        for endpoint in available_endpoints[:5]:  # Show first 5 to avoid overwhelming output
+            print(f"  - {endpoint}")
+        if len(available_endpoints) > 5:
+            print(f"  ... and {len(available_endpoints) - 5} more")
+        
+        # Display additional information if provided by the LLM
+        if "auth_method" in parsed_docs:
+            print(f"Authentication method: {parsed_docs['auth_method']}")
+        if "request_format" in parsed_docs:
+            print(f"Request format: {parsed_docs['request_format']}")
     
-    # For this example, we'll simulate a response
-    simulation_response = {
-        "analysis": {
-            "ticket_type": "Bug Report",
-            "priority_recommendation": "High" if "urgent" in ticket_data.get("summary", "").lower() else "Medium",
-            "estimated_effort": "4 hours",
-            "similar_tickets": ["PROJ-100", "PROJ-212", "PROJ-345"],
-            "recommended_action": "Assign to backend team",
-            "automated_checks": [
-                {"name": "Security scan", "result": "Passed"},
-                {"name": "Code quality", "result": "Failed", "details": "Insufficient test coverage"}
-            ]
-        },
-        "timestamp": "2023-06-01T12:34:56Z"
-    }
+    # Now proceed with the actual analysis
+    print(f"\nSending ticket data to API for analysis...")
     
-    # Add email to response if available
-    if "user_email" in ticket_data and ticket_data["user_email"]:
-        simulation_response["analysis"]["user_email"] = ticket_data["user_email"]
+    # Get the analysis endpoint from the parsed documentation
+    analysis_endpoint = parsed_docs.get("analysis_endpoint")
     
-    return simulation_response
+    # Use the default endpoint if we didn't find one in the documentation
+    if not analysis_endpoint:
+        analysis_endpoint = "/api/v1/analyze"  # Default fallback
+        print(f"No analysis endpoint found in documentation, using default: {analysis_endpoint}")
+    else:
+        print(f"Using analysis endpoint from documentation: {analysis_endpoint}")
+    
+    try:
+        # In a real implementation, you would do:
+        full_url = f"{API_ENDPOINT.rstrip('/')}{analysis_endpoint}"
+        print(f"Using endpoint: {full_url}")
+        
+        # Use the utility to determine headers based on documentation
+        headers = determine_headers(parsed_docs, API_KEY)
+        
+        # Try to make the actual API call
+        # Uncomment this in real implementation:
+        # response = requests.post(full_url, json=ticket_data, headers=headers)
+        # if response.status_code == 200:
+        #     return response.json()
+        
+        # For this example, we'll simulate a response with simplified content
+        simulation_response = {
+            "analysis": {
+                # Only include necessary fields
+                "user_account_status": "Active"
+            },
+            "api_info": {
+                "documentation_available": bool(api_documentation),
+                "endpoints_found": parsed_docs.get("endpoints", []),
+                "endpoint_used": analysis_endpoint,
+                "llm_parsed": True,
+                "auth_method": parsed_docs.get("auth_method", "Not specified")
+            }
+        }
+        
+        # Add email to response if available
+        if "user_email" in ticket_data and ticket_data["user_email"]:
+            simulation_response["analysis"]["user_email"] = ticket_data["user_email"]
+        
+        return simulation_response
+        
+    except Exception as e:
+        print(f"Error during API analysis: {e}")
+        return {
+            "error": str(e),
+            "message": "Failed to analyze ticket"
+        }
 
 
 def format_analysis_comment(analysis_results):
@@ -99,39 +161,34 @@ def format_analysis_comment(analysis_results):
     """
     comment = "**Automated Analysis Results**\n\n"
     
-    # Add ticket type and priority
+    # Get analysis section
     analysis = analysis_results.get("analysis", {})
-    comment += f"**Ticket Type**: {analysis.get('ticket_type', 'Unknown')}\n"
-    comment += f"**Recommended Priority**: {analysis.get('priority_recommendation', 'Unknown')}\n"
-    comment += f"**Estimated Effort**: {analysis.get('estimated_effort', 'Unknown')}\n"
     
     # Add user email if available
     if "user_email" in analysis:
         comment += f"**User Email**: {analysis['user_email']}\n"
     
+    # Add account status if available
+    if "user_account_status" in analysis:
+        comment += f"**Account Status**: {analysis['user_account_status']}\n"
+    
     comment += "\n"
     
-    # Add recommended action
-    if "recommended_action" in analysis:
-        comment += f"**Recommended Action**: {analysis['recommended_action']}\n\n"
-    
-    # Add similar tickets
-    similar_tickets = analysis.get("similar_tickets", [])
-    if similar_tickets:
-        comment += "**Similar Tickets**:\n"
-        for ticket in similar_tickets:
-            comment += f"- {ticket}\n"
-        comment += "\n"
-    
-    # Add automated checks
-    automated_checks = analysis.get("automated_checks", [])
-    if automated_checks:
-        comment += "**Automated Checks**:\n"
-        for check in automated_checks:
-            result_icon = "✅" if check["result"] == "Passed" else "❌"
-            comment += f"- {result_icon} {check['name']}: {check['result']}"
-            if "details" in check:
-                comment += f" - {check['details']}"
+    # Add API information if available
+    api_info = analysis_results.get("api_info", {})
+    if api_info:
+        comment += "**API Information**:\n"
+        comment += f"- Documentation Available: {api_info.get('documentation_available', False)}\n"
+        comment += f"- Endpoint Used: {api_info.get('endpoint_used', 'Unknown')}\n"
+        
+        # Add list of available endpoints (first 3 only to keep comment concise)
+        endpoints = api_info.get("endpoints_found", [])
+        if endpoints:
+            comment += f"- Available Endpoints ({len(endpoints)} total): "
+            if len(endpoints) <= 3:
+                comment += ", ".join(endpoints)
+            else:
+                comment += ", ".join(endpoints[:3]) + f", ... ({len(endpoints) - 3} more)"
             comment += "\n"
     
     return comment
