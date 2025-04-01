@@ -21,7 +21,8 @@ DEFAULT_LLM_MODEL = "gpt-4"  # For OpenAI
 DEFAULT_ANTHROPIC_MODEL = "claude-3-opus-20240229"  # For Anthropic
 
 
-def parse_api_docs_with_llm(
+def select_api_with_llm(
+    ticket_data: str,
     documentation: Union[Dict, str], 
     llm_api_key: Optional[str] = None,
     llm_api_url: Optional[str] = None
@@ -58,22 +59,22 @@ def parse_api_docs_with_llm(
         # Prepare prompt for the LLM
         prompt = f"""
         You are an AI assistant helping to parse API documentation and extract useful information.
-        Please analyze this API documentation and extract:
-        1. A list of all available endpoints
-        2. Which endpoint would be best for sending JIRA ticket data for analysis
-        3. Any required headers or authentication methods
-        4. Any specific request format requirements
+        You are also given the description of the JIRA ticket that the user has submitted.
+        In the API documentation you are given there are infomration about the endpoints, the intent recogintion, and a few examples of when to use each endpoint.
+        Please analyze this API documentation along with the JIRA ticket description and extract the following information:
+        1. Which endpoint would be best for handling the JIRA ticket request
+        2. Which information from the JIRA ticket description is relevant to the endpoint
         
         Here's the documentation:
         {doc_text[:4000]}  # Truncate if too large
+
+        Here's the JIRA ticket description:
+        {ticket_data}
         
         Response format:
         {{
-            "endpoints": ["list", "of", "endpoints"],
-            "analysis_endpoint": "recommended_endpoint_for_analysis",
-            "auth_method": "authentication method if specified",
-            "required_headers": {{"header_name": "description"}},
-            "request_format": "description of request format if specified"
+            "endpoint": Result from 1.,
+            "relevant_info": Result from 2.
         }}
         """
         

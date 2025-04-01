@@ -9,7 +9,7 @@ This package provides tools for:
 
 from app.jira_agent.jira import JiraAgent
 from app.jira_agent.api_utils import (
-    parse_api_docs_with_llm,
+    select_api_with_llm,
     extract_endpoints_rule_based,
     get_api_documentation,
     determine_headers
@@ -17,7 +17,7 @@ from app.jira_agent.api_utils import (
 
 __all__ = [
     "JiraAgent",
-    "parse_api_docs_with_llm",
+    "select_api_with_llm",
     "extract_endpoints_rule_based",
     "get_api_documentation",
     "determine_headers"

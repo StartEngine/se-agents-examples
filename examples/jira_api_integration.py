@@ -15,7 +15,7 @@ import requests
 from dotenv import load_dotenv
 from app.jira_agent import (
     JiraAgent, 
-    parse_api_docs_with_llm,
+    select_api_with_llm,
     extract_endpoints_rule_based,
     get_api_documentation,
     determine_headers
@@ -70,49 +70,34 @@ def analyze_with_api(ticket_data):
     
     if not api_documentation:
         print("Could not retrieve API documentation")
-        parsed_docs = {"endpoints": [], "analysis_endpoint": None}
+        api_analysis_result = {"endpoints": [], "analysis_endpoint": None}
     else:
         # Use the refactored LLM parser
-        parsed_docs = parse_api_docs_with_llm(
+        api_analysis_result = select_api_with_llm(
+            ticket_data,
             api_documentation, 
             llm_api_key=LLM_API_KEY,
             llm_api_url=LLM_API_URL
         )
         
         # Display the endpoints found
-        available_endpoints = parsed_docs.get("endpoints", [])
-        print(f"Found {len(available_endpoints)} available endpoints")
-        for endpoint in available_endpoints[:5]:  # Show first 5 to avoid overwhelming output
-            print(f"  - {endpoint}")
-        if len(available_endpoints) > 5:
-            print(f"  ... and {len(available_endpoints) - 5} more")
+        selected_endpoint = api_analysis_result.get("endpoint", [])
+        print(f"Selected endpoint: {selected_endpoint}")
         
         # Display additional information if provided by the LLM
-        if "auth_method" in parsed_docs:
-            print(f"Authentication method: {parsed_docs['auth_method']}")
-        if "request_format" in parsed_docs:
-            print(f"Request format: {parsed_docs['request_format']}")
+        if "relevant_info" in api_analysis_result:
+            print(f"Relevant information from ticket: {api_analysis_result['relevant_info']}")
     
     # Now proceed with the actual analysis
     print(f"\nSending ticket data to API for analysis...")
     
-    # Get the analysis endpoint from the parsed documentation
-    analysis_endpoint = parsed_docs.get("analysis_endpoint")
-    
-    # Use the default endpoint if we didn't find one in the documentation
-    if not analysis_endpoint:
-        analysis_endpoint = "/api/v1/analyze"  # Default fallback
-        print(f"No analysis endpoint found in documentation, using default: {analysis_endpoint}")
-    else:
-        print(f"Using analysis endpoint from documentation: {analysis_endpoint}")
-    
     try:
         # In a real implementation, you would do:
-        full_url = f"{API_ENDPOINT.rstrip('/')}{analysis_endpoint}"
+        full_url = f"{API_ENDPOINT.rstrip('/')}{selected_endpoint}"
         print(f"Using endpoint: {full_url}")
         
         # Use the utility to determine headers based on documentation
-        headers = determine_headers(parsed_docs, API_KEY)
+        headers = determine_headers(api_analysis_result, API_KEY)
         
         # Try to make the actual API call
         # Uncomment this in real implementation:
@@ -128,10 +113,10 @@ def analyze_with_api(ticket_data):
             },
             "api_info": {
                 "documentation_available": bool(api_documentation),
-                "endpoints_found": parsed_docs.get("endpoints", []),
-                "endpoint_used": analysis_endpoint,
+                "endpoints_found": api_analysis_result.get("endpoints", []),
+                "endpoint_used": selected_endpoint,
                 "llm_parsed": True,
-                "auth_method": parsed_docs.get("auth_method", "Not specified")
+                "auth_method": api_analysis_result.get("auth_method", "Not specified")
             }
         }
         
