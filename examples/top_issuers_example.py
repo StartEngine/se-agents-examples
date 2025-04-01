@@ -10,6 +10,7 @@ This example shows how to:
 import os
 import sys
 import csv
+import time
 from pathlib import Path
 from dotenv import load_dotenv
 from app.metabase_agent.metabase import MetabaseAgent
@@ -49,31 +50,37 @@ def get_top_offerings(limit=10, headless=False):
     """
     
     try:
-        # Use the specific downloads directory path
-        downloads_dir = Path("/Users/jordanjahja/Downloads")
-        # Ensure the directory exists
-        if not downloads_dir.exists():
-            print(f"Warning: Downloads directory {downloads_dir} does not exist. Creating it...")
-            downloads_dir.mkdir(parents=True, exist_ok=True)
-        
         # Initialize the Metabase agent
         agent = MetabaseAgent(headless=headless)
         
-        # Run the query and download results directly to Downloads folder
-        csv_file_path = agent.run_query_and_download(
-            sql_query=query,
-            database="primary_facade",
-            download_path=str(downloads_dir)
-        )
-        
-        if not csv_file_path or not Path(csv_file_path).exists():
-            print("Error: Failed to download query results.")
-            return []
-        
-        print(f"\nMetabase results saved to: {csv_file_path}")
-        
-        # Process the CSV file
-        return process_csv_results(csv_file_path)
+        # Create a temporary directory for downloads (primary method)
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Run the query and download results to temp directory
+            csv_file_path = agent.run_query_and_download(
+                sql_query=query,
+                database="primary_facade",
+                download_path=temp_dir
+            )
+            
+            if not csv_file_path or not Path(csv_file_path).exists():
+                print("Error: Failed to download query results.")
+                return []
+            
+            # Optional: Save a copy to downloads directory
+            # Comment out the following lines if you don't want to save to downloads
+            try:
+                downloads_dir = Path("/Users/jordanjahja/Downloads")
+                if downloads_dir.exists():
+                    import shutil
+                    download_file_path = downloads_dir / f"top_offerings_{limit}_{int(time.time())}.csv"
+                    shutil.copy2(csv_file_path, download_file_path)
+                    print(f"\nCopy of results saved to: {download_file_path}")
+            except Exception as e:
+                print(f"Note: Could not save copy to Downloads folder: {e}")
+            
+            # Process the CSV file
+            return process_csv_results(csv_file_path)
     
     except Exception as e:
         print(f"Error running Metabase query: {e}")
