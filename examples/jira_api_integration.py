@@ -33,26 +33,6 @@ LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_API_URL = os.getenv("LLM_API_URL", "https://api.openai.com/v1/chat/completions")
 
 
-def extract_email_from_text(text):
-    """
-    Extract email address from text using regex.
-    
-    Args:
-        text: String to search for email addresses
-        
-    Returns:
-        First email address found or None
-    """
-    if not text:
-        return None
-        
-    # Regex to match email addresses
-    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-    matches = re.findall(email_pattern, text)
-    
-    return matches[0] if matches else None
-
-
 def analyze_with_api(ticket_data):
     """
     Send ticket data to an external API for analysis.
@@ -200,12 +180,6 @@ def main():
     
     # Extract email from description if present
     description = ticket_info.get("description", "")
-    user_email = extract_email_from_text(description)
-    if user_email:
-        ticket_info["user_email"] = user_email
-        print(f"Extracted email: {user_email}")
-    else:
-        print("No email found in description")
     
     # Display basic ticket information
     print(f"\nTicket: {ticket_info.get('id')}")
