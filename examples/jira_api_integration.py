@@ -10,6 +10,7 @@ This example shows how to:
 
 import os
 import json
+import re
 import requests
 from dotenv import load_dotenv
 from app.jira_agent import JiraAgent
@@ -19,8 +20,28 @@ load_dotenv(dotenv_path=".env.local", override=True)
 
 # Define your API endpoint
 # This can be any API that takes JIRA ticket data and returns an analysis
-API_ENDPOINT = os.getenv("ANALYSIS_API_ENDPOINT", "https://your-analysis-api.com/analyze")
+API_ENDPOINT = os.getenv("PROD_SUPPORT_API_URL", "http://localhost:8000/")
 API_KEY = os.getenv("ANALYSIS_API_KEY", "")
+
+
+def extract_email_from_text(text):
+    """
+    Extract email address from text using regex.
+    
+    Args:
+        text: String to search for email addresses
+        
+    Returns:
+        First email address found or None
+    """
+    if not text:
+        return None
+        
+    # Regex to match email addresses
+    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+    matches = re.findall(email_pattern, text)
+    
+    return matches[0] if matches else None
 
 
 def analyze_with_api(ticket_data):
@@ -59,6 +80,10 @@ def analyze_with_api(ticket_data):
         "timestamp": "2023-06-01T12:34:56Z"
     }
     
+    # Add email to response if available
+    if "user_email" in ticket_data and ticket_data["user_email"]:
+        simulation_response["analysis"]["user_email"] = ticket_data["user_email"]
+    
     return simulation_response
 
 
@@ -78,7 +103,13 @@ def format_analysis_comment(analysis_results):
     analysis = analysis_results.get("analysis", {})
     comment += f"**Ticket Type**: {analysis.get('ticket_type', 'Unknown')}\n"
     comment += f"**Recommended Priority**: {analysis.get('priority_recommendation', 'Unknown')}\n"
-    comment += f"**Estimated Effort**: {analysis.get('estimated_effort', 'Unknown')}\n\n"
+    comment += f"**Estimated Effort**: {analysis.get('estimated_effort', 'Unknown')}\n"
+    
+    # Add user email if available
+    if "user_email" in analysis:
+        comment += f"**User Email**: {analysis['user_email']}\n"
+    
+    comment += "\n"
     
     # Add recommended action
     if "recommended_action" in analysis:
@@ -113,18 +144,26 @@ def main():
     
     # Initialize the JIRA agent
     agent = JiraAgent(
-        headless=False,  # Set to True to hide the browser
         jira_url=os.getenv("JIRA_URL"),
-        use_sso=True,
-        prefer_google=True
+        username=os.getenv("JIRA_USERNAME"),
+        password=os.getenv("JIRA_PASSWORD")
     )
     
     # Get ticket information with additional fields
     print(f"\nGetting information for ticket {ticket_id}...")
     ticket_info = agent.get_ticket(
         ticket_id, 
-        extract_fields=["status", "assignee", "priority", "type", "reporter", "labels", "comments"]
+        extract_fields=["summary", "description"]
     )
+    
+    # Extract email from description if present
+    description = ticket_info.get("description", "")
+    user_email = extract_email_from_text(description)
+    if user_email:
+        ticket_info["user_email"] = user_email
+        print(f"Extracted email: {user_email}")
+    else:
+        print("No email found in description")
     
     # Display basic ticket information
     print(f"\nTicket: {ticket_info.get('id')}")
