@@ -11,6 +11,9 @@ This example shows how to:
 import os
 import json
 import requests
+import tkinter as tk
+from tkinter import scrolledtext
+import threading
 from dotenv import load_dotenv
 from app.jira_agent import (
     JiraAgent, 
@@ -18,6 +21,7 @@ from app.jira_agent import (
     extract_endpoints_rule_based,
     get_api_documentation
 )
+import sys
 
 # Load environment variables from .env.local file
 load_dotenv(dotenv_path=".env.local", override=True)
@@ -29,6 +33,28 @@ API_KEY = os.getenv("ANALYSIS_API_KEY", "")
 # Optional: Add LLM API key for documentation parsing
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_API_URL = os.getenv("LLM_API_URL", "https://api.openai.com/v1/chat/completions")
+
+
+class RedirectText:
+    """
+    A class that redirects print statements to both the console and a tkinter text widget.
+    """
+    def __init__(self, text_widget):
+        self.text_widget = text_widget
+        self.buffer = ""
+        self.original_stdout = sys.__stdout__
+        
+    def write(self, string):
+        self.buffer += string
+        self.text_widget.config(state=tk.NORMAL)
+        self.text_widget.insert(tk.END, string)
+        self.text_widget.see(tk.END)
+        self.text_widget.config(state=tk.DISABLED)
+        # Write to original stdout to avoid recursion
+        self.original_stdout.write(string)
+        
+    def flush(self):
+        pass
 
 
 def analyze_with_api(ticket_data):
@@ -148,10 +174,15 @@ def analyze_with_api(ticket_data):
         return error_message
 
 
-def main():
-    """Run the JIRA API integration example."""
-    # Get ticket ID from user
-    ticket_id = input("Enter JIRA ticket ID (e.g., PROJ-123): ")
+def run_analysis(ticket_id, submit_button, status_label, comment_frame, yes_button, no_button):
+    """Process JIRA ticket and display results in GUI"""
+    
+    # Update status
+    status_label.config(text="Working on your request...")
+    submit_button.config(state=tk.DISABLED)
+    
+    # Hide comment buttons initially
+    comment_frame.pack_forget()
     
     # Initialize the JIRA agent
     agent = JiraAgent(
@@ -162,6 +193,9 @@ def main():
     
     # Get ticket information with additional fields
     print(f"\nGetting information for ticket {ticket_id}...")
+    import time
+    time.sleep(2)  # Add a 2-second delay
+    
     ticket_info = agent.get_ticket(
         ticket_id, 
         extract_fields=["summary", "description", "assignee"]
@@ -169,28 +203,147 @@ def main():
     
     # Display basic ticket information
     print(f"\nTicket: {ticket_info.get('id')}")
+    time.sleep(2)  # Add a 2-second delay
+    
     print(f"Summary: {ticket_info.get('summary', 'Unknown')}")
+    time.sleep(2)  # Add a 2-second delay
+    
     print(f"Assignee: {ticket_info.get('assignee', 'Unknown')}")
+    time.sleep(2)  # Add a 2-second delay
     
     # Analyze with external API
     print("\nSending to API for analysis...")
+    time.sleep(2)  # Add a 2-second delay
+    
     api_response = analyze_with_api(ticket_info)
     
     # Display raw API response
     print("\nAPI Response:")
+    time.sleep(2)  # Add a 2-second delay
+    
     print(api_response)
     
-    # Ask if we should post the API response as a comment to JIRA
-    post_comment = input("\nPost API response as comment to JIRA ticket? (y/n): ").lower() == 'y'
-    if post_comment:
-        print(f"Adding API response as comment to ticket {ticket_id}...")
-        result = agent.add_comment(ticket_id, api_response)
-        if result:
-            print("API response comment added successfully!")
-        else:
-            print("Failed to add comment.")
+    # Store the current ticket_id and api_response for the comment buttons
+    yes_button.config(command=lambda: post_comment_to_jira(agent, ticket_id, api_response, status_label, comment_frame))
+    no_button.config(command=lambda: skip_comment(status_label, comment_frame))
+    
+    # Show the comment option in the UI
+    comment_frame.pack(fill=tk.X, pady=10)
+    
+    # Update status
+    status_label.config(text="Analysis completed! Post as comment?")
+
+
+def post_comment_to_jira(agent, ticket_id, api_response, status_label, comment_frame):
+    """Post the API response as a comment to the JIRA ticket"""
+    status_label.config(text="Posting comment...")
+    
+    # Hide comment buttons
+    comment_frame.pack_forget()
+    
+    print(f"\nAdding API response as comment to ticket {ticket_id}...")
+    result = agent.add_comment(ticket_id, api_response)
+    if result:
+        print("API response comment added successfully!")
+        status_label.config(text="Comment added successfully!")
+    else:
+        print("Failed to add comment.")
+        status_label.config(text="Failed to add comment.")
     
     print("\nJIRA API integration example completed!")
+
+
+def skip_comment(status_label, comment_frame):
+    """Skip posting the comment"""
+    # Hide comment buttons
+    comment_frame.pack_forget()
+    
+    print("\nSkipped posting comment.")
+    print("\nJIRA API integration example completed!")
+    status_label.config(text="Analysis completed!")
+
+
+def create_gui():
+    """Create a GUI window for JIRA ticket analysis"""
+    root = tk.Tk()
+    root.title("JIRA API Integration")
+    
+    # Set window size
+    window_width = 800
+    window_height = 600
+    root.geometry(f"{window_width}x{window_height}")
+    
+    # Center the window on the screen
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+    x_position = int((screen_width - window_width) / 2)
+    y_position = int((screen_height - window_height) / 2)
+    root.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+    
+    # Create frames
+    input_frame = tk.Frame(root, padx=10, pady=10)
+    input_frame.pack(fill=tk.X)
+    
+    output_frame = tk.Frame(root, padx=10, pady=10)
+    output_frame.pack(fill=tk.BOTH, expand=True)
+    
+    # Create comment frame (initially hidden)
+    comment_frame = tk.Frame(root, padx=10, pady=10)
+    
+    # Add comment question and buttons
+    tk.Label(comment_frame, text="Post API response as comment to JIRA ticket?").pack(side=tk.LEFT)
+    yes_button = tk.Button(comment_frame, text="Yes", width=8)
+    yes_button.pack(side=tk.LEFT, padx=5)
+    no_button = tk.Button(comment_frame, text="No", width=8)
+    no_button.pack(side=tk.LEFT, padx=5)
+    
+    # Ticket ID input
+    tk.Label(input_frame, text="Enter JIRA Ticket ID:").pack(side=tk.LEFT)
+    ticket_entry = tk.Entry(input_frame, width=20)
+    ticket_entry.pack(side=tk.LEFT, padx=5)
+    
+    # Status label
+    status_label = tk.Label(input_frame, text="Ready")
+    status_label.pack(side=tk.RIGHT)
+    
+    # Output text area
+    output_text = scrolledtext.ScrolledText(output_frame, wrap=tk.WORD, state=tk.DISABLED)
+    output_text.pack(fill=tk.BOTH, expand=True)
+    
+    # Submit button
+    def on_submit():
+        ticket_id = ticket_entry.get().strip()
+        if not ticket_id:
+            status_label.config(text="Please enter a ticket ID")
+            return
+            
+        # Clear output
+        output_text.config(state=tk.NORMAL)
+        output_text.delete(1.0, tk.END)
+        output_text.config(state=tk.DISABLED)
+        
+        # Run analysis in a separate thread to keep UI responsive
+        thread = threading.Thread(
+            target=run_analysis, 
+            args=(ticket_id, submit_button, status_label, comment_frame, yes_button, no_button)
+        )
+        thread.daemon = True
+        thread.start()
+    
+    submit_button = tk.Button(input_frame, text="Analyze Ticket", command=on_submit)
+    submit_button.pack(side=tk.LEFT, padx=5)
+    
+    # Redirect stdout to the text widget
+    redirect = RedirectText(output_text)
+    sys.stdout = redirect
+    
+    return root
+
+
+def main():
+    """Run the JIRA API integration example with GUI."""
+    root = create_gui()
+    root.mainloop()
     
 if __name__ == "__main__":
     main() 
