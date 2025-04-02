@@ -2,6 +2,9 @@
 Formatting and display utilities for offering data.
 """
 
+import re
+from datetime import datetime
+
 def safe_int(val, default=0):
     """Convert a value to int, handling None values and exceptions."""
     try:
@@ -24,7 +27,37 @@ def print_offering_summary(offering_data):
         offering_data (dict): Data for a single offering
     """
     slug = offering_data.get('slug', 'unknown')
-    print(f"\nData for {slug}:")
+    name = offering_data.get('name', slug)  # Use name as primary identifier, fallback to slug
+    print(f"\nData for {name}:")
+    
+    # Display status indicators
+    if offering_data.get('new_launch'):
+        print(f"  ⭐ NEW LAUNCH")
+    if offering_data.get('closing_soon'):
+        print(f"  ⚠️ CLOSING SOON")
+    
+    # Display dates with more user-friendly format
+    if 'start_date' in offering_data:
+        start_date = offering_data.get('start_date')
+        try:
+            if isinstance(start_date, str) and re.match(r'\d{4}-\d{2}-\d{2}', start_date):
+                formatted_date = datetime.strptime(start_date.split(' ')[0], '%Y-%m-%d').strftime('%B %d, %Y')
+                print(f"  Start date: {formatted_date}")
+            else:
+                print(f"  Start date: {start_date}")
+        except Exception:
+            print(f"  Start date: {start_date}")
+            
+    if 'closing_date' in offering_data:
+        closing_date = offering_data.get('closing_date')
+        try:
+            if isinstance(closing_date, str) and re.match(r'\d{4}-\d{2}-\d{2}', closing_date):
+                formatted_date = datetime.strptime(closing_date.split(' ')[0], '%Y-%m-%d').strftime('%B %d, %Y')
+                print(f"  Closing date: {formatted_date}")
+            else:
+                print(f"  Closing date: {closing_date}")
+        except Exception:
+            print(f"  Closing date: {closing_date}")
     
     # Display total amount raised if available
     if 'amount_raised_formatted' in offering_data:
@@ -82,7 +115,41 @@ def print_offerings_data(offerings_dict):
     # Print each offering with all available details
     for i, slug in enumerate(sorted_slugs, 1):
         data = offerings_dict[slug]
-        print(f"{i}. {slug}")
+        offering_name = data.get('name', slug)  # Use name as primary identifier, fallback to slug
+        print(f"{i}. {offering_name}")
+        
+        # Status indicators
+        status_tags = []
+        if data.get('new_launch'):
+            status_tags.append("⭐ NEW LAUNCH")
+        if data.get('closing_soon'):
+            status_tags.append("⚠️ CLOSING SOON")
+            
+        if status_tags:
+            print(f"   Status: {', '.join(status_tags)}")
+        
+        # Dates with nicer formatting
+        if 'start_date' in data:
+            start_date = data.get('start_date')
+            try:
+                if isinstance(start_date, str) and re.match(r'\d{4}-\d{2}-\d{2}', start_date):
+                    formatted_date = datetime.strptime(start_date.split(' ')[0], '%Y-%m-%d').strftime('%B %d, %Y')
+                    print(f"   Start Date: {formatted_date}")
+                else:
+                    print(f"   Start Date: {start_date}")
+            except Exception:
+                print(f"   Start Date: {start_date}")
+                
+        if 'closing_date' in data:
+            closing_date = data.get('closing_date')
+            try:
+                if isinstance(closing_date, str) and re.match(r'\d{4}-\d{2}-\d{2}', closing_date):
+                    formatted_date = datetime.strptime(closing_date.split(' ')[0], '%Y-%m-%d').strftime('%B %d, %Y')
+                    print(f"   Closing Date: {formatted_date}")
+                else:
+                    print(f"   Closing Date: {closing_date}")
+            except Exception:
+                print(f"   Closing Date: {closing_date}")
         
         # Print all available data for this offering
         if 'amount_raised' in data:
@@ -202,6 +269,20 @@ def print_detailed_offering_list(all_offerings_data):
                 ('followers_total', 'Total Followers', False)
             ]
         },
+        'dates': {
+            'title': 'Dates:',
+            'fields': [
+                ('start_date', 'Start Date', False, True),  # Added date formatting flag
+                ('closing_date', 'Closing Date', False, True)  # Added date formatting flag
+            ]
+        },
+        'status': {
+            'title': 'Status:',
+            'fields': [
+                ('new_launch', 'New Launch', False),
+                ('closing_soon', 'Closing Soon', False)
+            ]
+        },
         '7d': {
             'title': 'Last 7 Days:',
             'fields': [
@@ -228,7 +309,8 @@ def print_detailed_offering_list(all_offerings_data):
     # Display each offering in order
     for i, slug in enumerate(sorted_slugs, 1):
         data = all_offerings_data[slug]
-        print(f"\n{i}. {slug}")
+        name = data.get('name', slug)  # Use name as primary identifier, fallback to slug
+        print(f"\n{i}. {name}")
         
         # Display each group of metrics
         for group_key, group_config in DISPLAY_GROUPS.items():
@@ -240,22 +322,47 @@ def print_detailed_offering_list(all_offerings_data):
             indent = "     " if group_config['title'] else "   "
             
             # Print each field in the group
-            for field_name, display_name, is_currency in group_config['fields']:
+            for field_info in group_config['fields']:
+                # Unpack field info, handling both 3 and 4 element tuples
+                if len(field_info) >= 4:
+                    field_name, display_name, is_currency, is_date = field_info
+                else:
+                    field_name, display_name, is_currency = field_info
+                    is_date = False
+                
                 # Skip fields that don't exist in the data
                 if field_name not in data and f"{field_name}_formatted" not in data:
                     continue
-                    
+                
+                # Special handling for name field (already displayed as the title)
+                if field_name == 'name':
+                    continue
+                
                 # For currency fields, prefer formatted version if available
                 if is_currency and f"{field_name}_formatted" in data:
                     value = data.get(f"{field_name}_formatted", '$0.00')
                     print(f"{indent}{display_name}: {value}")
+                elif is_date:
+                    # Format dates in a more human-readable format
+                    date_value = data.get(field_name)
+                    if date_value and isinstance(date_value, str) and re.match(r'\d{4}-\d{2}-\d{2}', date_value):
+                        try:
+                            formatted_date = datetime.strptime(date_value.split(' ')[0], '%Y-%m-%d').strftime('%B %d, %Y')
+                            print(f"{indent}{display_name}: {formatted_date}")
+                        except Exception:
+                            print(f"{indent}{display_name}: {date_value}")
+                    else:
+                        print(f"{indent}{display_name}: {date_value}")
                 else:
                     # For non-currency fields or if formatted not available
                     raw_value = data.get(field_name, 0)
                     if is_currency:
                         value = f"${safe_float(raw_value):,.2f}"
                     else:
-                        value = f"{safe_int(raw_value):,}"
+                        if isinstance(raw_value, bool):
+                            value = "Yes" if raw_value else "No"
+                        else:
+                            value = f"{safe_int(raw_value):,}"
                     print(f"{indent}{display_name}: {value}")
         
         # Add a separator between offerings

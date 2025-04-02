@@ -59,7 +59,7 @@ def run_metabase_query(session, query, temp_dir):
         print(f"Error running Metabase query: {e}")
         return []
 
-def get_offering_data(session, slug, temp_dir, amount_raised=None, amount_raised_formatted=None):
+def get_offering_data(session, slug, temp_dir, amount_raised=None, amount_raised_formatted=None, **metadata):
     """
     Get all data for a specific offering by running multiple queries.
     
@@ -69,15 +69,22 @@ def get_offering_data(session, slug, temp_dir, amount_raised=None, amount_raised
         temp_dir (str): Temporary directory to store downloads
         amount_raised (float, optional): Already known amount raised
         amount_raised_formatted (str, optional): Formatted amount raised
+        **metadata: Additional metadata from the top offerings query
         
     Returns:
         dict: All data for the offering
     """
-    # Initialize with slug and any pre-known amount raised
+    # Initialize with slug and any pre-known data
     offering_data = {'slug': slug}
+    
+    # Add amount raised data
     if amount_raised is not None:
         offering_data['amount_raised'] = amount_raised
         offering_data['amount_raised_formatted'] = amount_raised_formatted or "${:,.2f}".format(amount_raised)
+        
+    # Add additional metadata fields
+    for key, value in metadata.items():
+        offering_data[key] = value
     
     print(f"Gathering complete data for {slug}...")
     
@@ -175,9 +182,15 @@ def main(limit=10, headless=False):
                     slug = offering.get('slug')
                     if slug:
                         top_slugs.append(slug)
+                        # Store all the offering metadata
                         slug_to_amount[slug] = {
                             'amount_raised': offering.get('amount_raised', 0),
-                            'amount_raised_formatted': offering.get('amount_raised_formatted', '$0.00')
+                            'amount_raised_formatted': offering.get('amount_raised_formatted', '$0.00'),
+                            'name': offering.get('name', ''),
+                            'closing_soon': offering.get('closing_soon', False),
+                            'closing_date': offering.get('closing_date'),
+                            'start_date': offering.get('start_date'),
+                            'new_launch': offering.get('new_launch', False)
                         }
                 
                 print(f"Found {len(top_slugs)} top offerings: {', '.join(top_slugs)}")
@@ -190,12 +203,15 @@ def main(limit=10, headless=False):
                 
                 # Process each offering with the known amount_raised
                 for i, slug in enumerate(top_slugs, 1):
-                    print(f"\n[{i}/{len(top_slugs)}] Processing offering: {slug}")
+                    # Get offering name for display
+                    offering_metadata = slug_to_amount.get(slug, {})
+                    offering_name = offering_metadata.get('name', slug)  # Use name, fallback to slug
+                    print(f"\n[{i}/{len(top_slugs)}] Processing offering: {offering_name}")
                     
-                    # Get the pre-known amount raised
-                    amount_data = slug_to_amount.get(slug, {})
-                    amount_raised = amount_data.get('amount_raised')
-                    amount_raised_formatted = amount_data.get('amount_raised_formatted')
+                    # Get all the pre-known offering data
+                    offering_metadata = slug_to_amount.get(slug, {})
+                    amount_raised = offering_metadata.pop('amount_raised', None) 
+                    amount_raised_formatted = offering_metadata.pop('amount_raised_formatted', None)
                     
                     # Get all detailed data for this offering
                     offering_data = get_offering_data(
@@ -203,7 +219,8 @@ def main(limit=10, headless=False):
                         slug,
                         temp_dir,
                         amount_raised=amount_raised,
-                        amount_raised_formatted=amount_raised_formatted
+                        amount_raised_formatted=amount_raised_formatted,
+                        **offering_metadata  # Pass all additional metadata
                     )
                     
                     # Store the complete data for this offering

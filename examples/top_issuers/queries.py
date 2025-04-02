@@ -5,14 +5,19 @@ SQL query definitions for the top issuers example.
 # Define dictionary of queries for Metabase
 QUERIES = {
     "top_offerings_by_amount_raised": """
-        select sum(i.amount) + sum(i.investor_fee) as amount_raised, o.slug
-        from primary_facade.investment i
-        join primary_facade.offering o on i.offering_id = o.id
-        where o.status = 'APPROVED'
-        and i.status in ('NOT_RECEIVED', 'RECEIVED', 'INVESTED', 'HOLD')
-        group by o.slug
-        order by amount_raised DESC
-        LIMIT {limit}
+    select sum(i.amount) + sum(i.investor_fee) as amount_raised,
+           o.slug, o.name,
+           o.funding_end_date < now() + interval '14 days' as closing_soon,
+           o.funding_end_date as closing_date,
+           o.funding_start_date as start_date,
+           o.funding_start_date >= now() - interval '7 days' as new_launch
+    from primary_facade.investment i
+    join primary_facade.offering o on i.offering_id = o.id
+    where o.status = 'APPROVED'
+      and i.status in ('NOT_RECEIVED', 'RECEIVED', 'INVESTED', 'HOLD')
+    group by o.slug, o.name, closing_soon, closing_date, start_date, new_launch
+    order by amount_raised DESC
+    LIMIT {limit};
     """,
     "offering_data_points": """
     with total_raise as (select sum(i.amount) + sum(i.investor_fee) as amount_raised

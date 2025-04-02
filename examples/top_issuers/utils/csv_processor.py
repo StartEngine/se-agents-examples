@@ -4,6 +4,8 @@ CSV processing utilities for Metabase query results.
 
 import os
 import csv
+import re
+from datetime import datetime
 
 def process_csv_results(csv_file_path):
     """
@@ -58,6 +60,12 @@ def process_csv_results(csv_file_path):
                         'updates_past_30_days'
                     ]
                     
+                    # Date fields to format
+                    date_cols = ['start_date', 'closing_date', 'funding_start_date', 'funding_end_date']
+                    
+                    # Boolean fields to convert
+                    bool_cols = ['closing_soon', 'new_launch']
+                    
                     if any(term in col.lower() for term in numeric_cols) or 'count' in col.lower() or 'total' in col.lower() or 'raised' in col.lower() or 'investors' in col.lower():
                         # Remove commas from numbers
                         clean_value = value.replace(',', '')
@@ -70,6 +78,37 @@ def process_csv_results(csv_file_path):
                             # If not a number, keep as string
                             processed_row[col] = value
                             print(f"Warning: Could not convert '{value}' to a number for column '{col}'")
+                    elif col in date_cols or any(date_term in col.lower() for date_term in ['date', '_at', '_on']):
+                        # Try to parse as date/timestamp in standard formats
+                        try:
+                            # Check for ISO format or common postgres timestamp format
+                            if 'T' in value and re.match(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}', value):
+                                # ISO format
+                                dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                                processed_row[col] = dt.strftime('%Y-%m-%d %H:%M:%S')
+                            elif re.match(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}', value):
+                                # Postgres timestamp
+                                dt = datetime.strptime(value.split('.')[0], '%Y-%m-%d %H:%M:%S')
+                                processed_row[col] = dt.strftime('%Y-%m-%d %H:%M:%S') 
+                            elif re.match(r'\d{4}-\d{2}-\d{2}', value):
+                                # Just date
+                                dt = datetime.strptime(value.split('T')[0], '%Y-%m-%d')
+                                processed_row[col] = dt.strftime('%Y-%m-%d')
+                            else:
+                                # If we can't parse, keep as is
+                                processed_row[col] = value
+                        except (ValueError, TypeError):
+                            # If it doesn't parse as a date, keep as string
+                            processed_row[col] = value
+                    elif col in bool_cols or col.endswith('_flag') or col.startswith('is_'):
+                        # Convert to proper boolean
+                        if value.lower() in ('t', 'true', 'yes', 'y', '1'):
+                            processed_row[col] = True
+                        elif value.lower() in ('f', 'false', 'no', 'n', '0'):
+                            processed_row[col] = False
+                        else:
+                            # If not a recognized boolean value, keep as string
+                            processed_row[col] = value
                     else:
                         # Keep non-numeric values as strings
                         processed_row[col] = value
