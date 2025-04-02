@@ -16,12 +16,19 @@ import tempfile
 import traceback
 from pathlib import Path
 from dotenv import load_dotenv
-from app.metabase_agent.metabase import MetabaseAgent
-from app.browser_agent.local_playwright import LocalPlaywrightBrowser
 import re
 
+# Add parent directory to sys.path to allow imports from app
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from app.metabase_agent.metabase import MetabaseAgent
+from app.browser_agent.local_playwright import LocalPlaywrightBrowser
+
+# Calculate path to creds.env file (expected in the root directory)
+root_dir = Path(__file__).resolve().parents[2]
+creds_path = root_dir / "creds.env"
+
 # Load environment variables from creds.env
-load_dotenv(dotenv_path="creds.env", override=True)
+load_dotenv(dotenv_path=creds_path, override=True)
 
 # Define dictionary of queries for Metabase
 QUERIES = {
@@ -148,73 +155,84 @@ def get_offering_data(session, slug, temp_dir, amount_raised=None, amount_raised
     
     print(f"Gathering complete data for {slug}...")
     
+    # Setup for dynamic queries
+    PER_OFFERING_QUERIES = {
+        k: v for k, v in QUERIES.items() 
+        if k != "top_offerings_by_amount_raised" and "{slug}" in v
+    }
+    
+    # Create a mapping of query keys to field names for cleaner result handling
+    QUERY_FIELD_MAPPING = {
+        # Each query key maps to a tuple of (field name, is_currency)
+        "offering_amount_raised_last_7_days": ("amount_raised_7d", True),
+        "offering_amount_raised_last_30_days": ("amount_raised_30d", True),
+        "offering_number_of_investors": ("investors_total", False),
+        "offering_number_of_investors_last_7_days": ("investors_7d", False),
+        "offering_number_of_investors_last_30_days": ("investors_30d", False),
+        # Add any new queries to this mapping with proper field names
+    }
+    
     try:
         # The issue is with double-quoting in the SQL queries
         # We need to ensure the slug is properly quoted in the SQL
         # For PostgreSQL, string values should be surrounded by single quotes
         quoted_slug = f"'{slug}'"
         
-        # 1. Get amount raised in last 7 days
-        print(f"  - Getting amount raised in last 7 days...")
-        # Format and clean the query for better compatibility
-        raw_query = QUERIES["offering_amount_raised_last_7_days"].format(slug=quoted_slug)
-        query = clean_sql_query(raw_query)
-        print(f"DEBUG - Query being sent: {query}")
-        results = run_metabase_query(session, query, temp_dir)
-        if results and len(results) > 0:
-            amount_raised_7d = results[0].get('amount_raised', 0)
-            offering_data['amount_raised_7d'] = amount_raised_7d
-            offering_data['amount_raised_7d_formatted'] = "${:,.2f}".format(float(amount_raised_7d) if amount_raised_7d else 0)
-        
-        # 2. Get amount raised in last 30 days
-        print(f"  - Getting amount raised in last 30 days...")
-        raw_query = QUERIES["offering_amount_raised_last_30_days"].format(slug=quoted_slug)
-        query = clean_sql_query(raw_query)
-        print(f"DEBUG - Query being sent: {query}")
-        results = run_metabase_query(session, query, temp_dir)
-        if results and len(results) > 0:
-            amount_raised_30d = results[0].get('amount_raised', 0)
-            offering_data['amount_raised_30d'] = amount_raised_30d
-            offering_data['amount_raised_30d_formatted'] = "${:,.2f}".format(float(amount_raised_30d) if amount_raised_30d else 0)
-        
-        # 3. Get total investors
-        print(f"  - Getting total investors count...")
-        raw_query = QUERIES["offering_number_of_investors"].format(slug=quoted_slug)
-        query = clean_sql_query(raw_query)
-        print(f"DEBUG - Query being sent: {query}")
-        results = run_metabase_query(session, query, temp_dir)
-        if results and len(results) > 0:
-            investors = results[0].get('number_of_investors', 0)
-            offering_data['investors_total'] = investors
-        
-        # 4. Get investors in last 7 days
-        print(f"  - Getting investors count from last 7 days...")
-        raw_query = QUERIES["offering_number_of_investors_last_7_days"].format(slug=quoted_slug)
-        query = clean_sql_query(raw_query)
-        print(f"DEBUG - Query being sent: {query}")
-        results = run_metabase_query(session, query, temp_dir)
-        if results and len(results) > 0:
-            investors_7d = results[0].get('number_of_investors', 0)
-            offering_data['investors_7d'] = investors_7d
-        
-        # 5. Get investors in last 30 days
-        print(f"  - Getting investors count from last 30 days...")
-        raw_query = QUERIES["offering_number_of_investors_last_30_days"].format(slug=quoted_slug)
-        query = clean_sql_query(raw_query)
-        print(f"DEBUG - Query being sent: {query}")
-        results = run_metabase_query(session, query, temp_dir)
-        if results and len(results) > 0:
-            investors_30d = results[0].get('number_of_investors', 0)
-            offering_data['investors_30d'] = investors_30d
+        # Dynamically run all queries for this offering
+        for query_key, query_sql in PER_OFFERING_QUERIES.items():
+            # Skip if this query key isn't in our mapping
+            if query_key not in QUERY_FIELD_MAPPING:
+                continue
+                
+            # Get field name and currency flag from mapping
+            field_name, is_currency = QUERY_FIELD_MAPPING.get(query_key, (None, False))
+            if not field_name:
+                continue
+                
+            # Print user-friendly query description
+            print(f"  - Getting {field_name.replace('_', ' ')}...")
+                
+            # Format and clean the query for better compatibility
+            raw_query = query_sql.format(slug=quoted_slug)
+            query = clean_sql_query(raw_query)
+            print(f"DEBUG - Query being sent: {query}")
+            
+            # Run the query
+            results = run_metabase_query(session, query, temp_dir)
+            
+            # Process results
+            if results and len(results) > 0:
+                # Get the first result value, looking for either 'number_of_investors' or 'amount_raised'
+                # based on the query type
+                value_key = 'amount_raised' if is_currency else 'number_of_investors'
+                value = results[0].get(value_key, 0)
+                
+                # Store the raw value
+                offering_data[field_name] = value
+                
+                # For currency fields, add a formatted version
+                if is_currency:
+                    formatted_value = "${:,.2f}".format(float(value) if value else 0)
+                    offering_data[f"{field_name}_formatted"] = formatted_value
         
         # Print the data we've gathered so far
         print(f"\nData for {slug}:")
-        print(f"  Total amount raised: {offering_data.get('amount_raised_formatted', '$0.00')}")
-        print(f"  Amount raised (7 days): {offering_data.get('amount_raised_7d_formatted', '$0.00')}")
-        print(f"  Amount raised (30 days): {offering_data.get('amount_raised_30d_formatted', '$0.00')}")
-        print(f"  Total investors: {offering_data.get('investors_total', 0)}")
-        print(f"  Investors (7 days): {offering_data.get('investors_7d', 0)}")
-        print(f"  Investors (30 days): {offering_data.get('investors_30d', 0)}")
+        
+        # Display total amount raised if available
+        if 'amount_raised_formatted' in offering_data:
+            print(f"  Total amount raised: {offering_data.get('amount_raised_formatted', '$0.00')}")
+        
+        # Dynamically print all collected metrics
+        for field_name, is_currency in QUERY_FIELD_MAPPING.values():
+            if field_name in offering_data:
+                display_name = field_name.replace('_', ' ').title()
+                value = offering_data.get(field_name, 0)
+                
+                if is_currency and f"{field_name}_formatted" in offering_data:
+                    print(f"  {display_name}: {offering_data.get(f'{field_name}_formatted', '$0.00')}")
+                else:
+                    print(f"  {display_name}: {value}")
+                
         print("-" * 80)
         
         return offering_data
@@ -1030,18 +1048,31 @@ if __name__ == "__main__":
                 except (ValueError, TypeError):
                     return default
             
-            total_investors = sum(safe_int(data.get('investors_total', 0)) for data in all_offerings_data.values())
-            total_7d_amount = sum(safe_float(data.get('amount_raised_7d', 0)) for data in all_offerings_data.values())
-            total_30d_amount = sum(safe_float(data.get('amount_raised_30d', 0)) for data in all_offerings_data.values())
-            total_7d_investors = sum(safe_int(data.get('investors_7d', 0)) for data in all_offerings_data.values())
-            total_30d_investors = sum(safe_int(data.get('investors_30d', 0)) for data in all_offerings_data.values())
+            # Create a mapping of query keys to field names for the summary display
+            SUMMARY_FIELD_MAPPING = {
+                # Field_name: (display name, is_currency)
+                'investors_total': ('Total investors across all offerings', False),
+                'amount_raised_7d': ('Total amount raised in last 7 days', True),
+                'amount_raised_30d': ('Total amount raised in last 30 days', True),
+                'investors_7d': ('Total new investors in last 7 days', False),
+                'investors_30d': ('Total new investors in last 30 days', False),
+                # Add additional fields here as needed
+            }
             
-            # Print aggregate metrics
-            print(f"Total investors across all offerings: {total_investors:,}")
-            print(f"Total amount raised in last 7 days: ${total_7d_amount:,.2f}")
-            print(f"Total amount raised in last 30 days: ${total_30d_amount:,.2f}")
-            print(f"Total new investors in last 7 days: {total_7d_investors:,}")
-            print(f"Total new investors in last 30 days: {total_30d_investors:,}")
+            # Calculate totals dynamically
+            totals = {}
+            for field_name, (_, is_currency) in SUMMARY_FIELD_MAPPING.items():
+                converter = safe_float if is_currency else safe_int
+                totals[field_name] = sum(converter(data.get(field_name, 0)) for data in all_offerings_data.values())
+            
+            # Print aggregate metrics dynamically
+            for field_name, (display_name, is_currency) in SUMMARY_FIELD_MAPPING.items():
+                if field_name in totals:
+                    value = totals[field_name]
+                    if is_currency:
+                        print(f"{display_name}: ${value:,.2f}")
+                    else:
+                        print(f"{display_name}: {value:,}")
             
             # List offerings sorted by amount raised
             print("\nOfferings by amount raised (high to low):")
@@ -1051,22 +1082,64 @@ if __name__ == "__main__":
                 reverse=True
             )
             
-            # More detailed offering information in the summary
+            # Define display groups for the detailed offering view
+            DISPLAY_GROUPS = {
+                'total': {
+                    'title': None,  # Top level doesn't need a title
+                    'fields': [
+                        ('amount_raised', 'Total Amount Raised', True),
+                        ('investors_total', 'Total Investors', False)
+                    ]
+                },
+                '7d': {
+                    'title': 'Last 7 Days:',
+                    'fields': [
+                        ('amount_raised_7d', 'Amount Raised', True),
+                        ('investors_7d', 'New Investors', False)
+                    ]
+                },
+                '30d': {
+                    'title': 'Last 30 Days:',
+                    'fields': [
+                        ('amount_raised_30d', 'Amount Raised', True),
+                        ('investors_30d', 'New Investors', False)
+                    ]
+                }
+                # Add more groups as needed
+            }
+            
+            # More detailed offering information in the summary - fully dynamic
             for i, slug in enumerate(sorted_slugs, 1):
                 data = all_offerings_data[slug]
                 print(f"\n{i}. {slug}")
-                print(f"   Total Amount Raised: {data.get('amount_raised_formatted', '$0.00')}")
-                print(f"   Total Investors: {safe_int(data.get('investors_total', 0)):,}")
                 
-                # 7-day metrics
-                print(f"   Last 7 Days:")
-                print(f"     Amount Raised: {data.get('amount_raised_7d_formatted', '$0.00')}")
-                print(f"     New Investors: {safe_int(data.get('investors_7d', 0)):,}")
-                
-                # 30-day metrics
-                print(f"   Last 30 Days:")
-                print(f"     Amount Raised: {data.get('amount_raised_30d_formatted', '$0.00')}")
-                print(f"     New Investors: {safe_int(data.get('investors_30d', 0)):,}")
+                # Display each group of metrics
+                for group_key, group_config in DISPLAY_GROUPS.items():
+                    # Print group title if any
+                    if group_config['title']:
+                        print(f"   {group_config['title']}")
+                        
+                    # Indent level depends on if we have a group title
+                    indent = "     " if group_config['title'] else "   "
+                    
+                    # Print each field in the group
+                    for field_name, display_name, is_currency in group_config['fields']:
+                        # Skip fields that don't exist in the data
+                        if field_name not in data and f"{field_name}_formatted" not in data:
+                            continue
+                            
+                        # For currency fields, prefer formatted version if available
+                        if is_currency and f"{field_name}_formatted" in data:
+                            value = data.get(f"{field_name}_formatted", '$0.00')
+                            print(f"{indent}{display_name}: {value}")
+                        else:
+                            # For non-currency fields or if formatted not available
+                            raw_value = data.get(field_name, 0)
+                            if is_currency:
+                                value = f"${safe_float(raw_value):,.2f}"
+                            else:
+                                value = f"{safe_int(raw_value):,}"
+                            print(f"{indent}{display_name}: {value}")
                 
                 # Add a separator between offerings
                 print("-" * 50)

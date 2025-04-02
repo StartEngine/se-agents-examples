@@ -22,7 +22,9 @@ class LocalPlaywrightBrowser(BasePlaywrightBrowser):
         )
 
         # Create downloads directory if it doesn't exist
-        downloads_path = Path("./downloads").absolute()
+        # Use absolute path relative to the repo root
+        root_dir = Path(__file__).resolve().parents[2]
+        downloads_path = (root_dir / "downloads").absolute()
         downloads_path.mkdir(exist_ok=True)
         
         # Configure browser context with download options
@@ -50,7 +52,10 @@ class LocalPlaywrightBrowser(BasePlaywrightBrowser):
         """Handle download events."""
         print(f"Download started: {download.suggested_filename}")
         try:
-            downloads_dir = Path("./downloads").absolute()
+            # Use absolute path relative to the repo root
+            root_dir = Path(__file__).resolve().parents[2]
+            downloads_dir = (root_dir / "downloads").absolute()
+            downloads_dir.mkdir(exist_ok=True)
             save_path = downloads_dir / download.suggested_filename
             
             # Use Playwright's built-in save_as method
