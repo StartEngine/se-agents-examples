@@ -99,13 +99,8 @@ def get_offering_data(session, slug, temp_dir, amount_raised=None, amount_raised
             if query_key not in QUERY_FIELD_MAPPING:
                 continue
                 
-            # Get field name and currency flag from mapping
-            field_name, is_currency = QUERY_FIELD_MAPPING.get(query_key, (None, False))
-            if not field_name:
-                continue
-                
-            # Print user-friendly query description
-            print(f"  - Getting {field_name.replace('_', ' ')}...")
+            # Print user-friendly query description - for combined queries just use the query key
+            print(f"  - Getting data for {query_key.replace('offering_', '').replace('_', ' ')}...")
                 
             # Format and clean the query for better compatibility
             raw_query = query_sql.format(slug=quoted_slug)
@@ -117,18 +112,25 @@ def get_offering_data(session, slug, temp_dir, amount_raised=None, amount_raised
             
             # Process results
             if results and len(results) > 0:
-                # Get the first result value, looking for either 'number_of_investors' or 'amount_raised'
-                # based on the query type
-                value_key = 'amount_raised' if is_currency else 'number_of_investors'
-                value = results[0].get(value_key, 0)
+                # Process the combined query results
+                column_mappings = QUERY_FIELD_MAPPING.get(query_key, {})
                 
-                # Store the raw value
-                offering_data[field_name] = value
-                
-                # For currency fields, add a formatted version
-                if is_currency:
-                    formatted_value = "${:,.2f}".format(float(value) if value else 0)
-                    offering_data[f"{field_name}_formatted"] = formatted_value
+                if column_mappings:
+                    # For combined queries, process each column with its mapping
+                    for column, mapping in column_mappings.items():
+                        field_name = mapping["field_name"]
+                        is_currency = mapping["is_currency"]
+                        
+                        # Get the value from the results
+                        value = results[0].get(column, 0)
+                        
+                        # Store the raw value
+                        offering_data[field_name] = value
+                        
+                        # For currency fields, add a formatted version
+                        if is_currency:
+                            formatted_value = "${:,.2f}".format(float(value) if value else 0)
+                            offering_data[f"{field_name}_formatted"] = formatted_value
         
         return offering_data
         

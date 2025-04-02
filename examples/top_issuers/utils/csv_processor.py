@@ -49,14 +49,20 @@ def process_csv_results(csv_file_path):
                         processed_row[col] = None
                         continue
                     
-                    # Try to convert to float if the column looks like a number
-                    if col.lower() in ('amount_raised', 'amount', 'number_of_investors') or 'count' in col.lower():
+                    # Try to convert to float if the column looks like a number or contains specific terms
+                    numeric_cols = [
+                        'amount_raised', 'amount', 'number_of_investors', 'total_raised', 
+                        'raised_past_7_days', 'raised_past_30_days', 'total_investors',
+                        'investors_past_7_days', 'investors_past_30_days'
+                    ]
+                    
+                    if any(term in col.lower() for term in numeric_cols) or 'count' in col.lower() or 'total' in col.lower() or 'raised' in col.lower() or 'investors' in col.lower():
                         # Remove commas from numbers
                         clean_value = value.replace(',', '')
                         try:
                             processed_row[col] = float(clean_value)
-                            # For amount columns, also add formatted version
-                            if 'amount' in col.lower() or 'raised' in col.lower():
+                            # For amount/money columns, also add formatted version
+                            if any(term in col.lower() for term in ['amount', 'raised', 'total_raised', 'raised_past']):
                                 processed_row[f"{col}_formatted"] = "${:,.2f}".format(float(clean_value))
                         except ValueError:
                             # If not a number, keep as string
