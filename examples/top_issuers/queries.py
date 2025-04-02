@@ -59,6 +59,41 @@ QUERIES = {
     select (select total_count from total_investors)          as total_investors,
            (select count_7_days from investors_past_7_days)   as investors_past_7_days,
            (select count_30_days from investors_past_30_days) as investors_past_30_days;
+    """,
+    "offering_followers": """
+    with total_followers as (select count(ifo.id) as total_count
+                         from primary_facade.investor_followed_offering ifo
+                                  join primary_facade.offering o on ifo.offering_id = o.id
+                         where o.slug = {slug}),
+         followers_past_7_days as (select count(ifo.id) as count_7_days
+                                   from primary_facade.investor_followed_offering ifo
+                                            join primary_facade.offering o on ifo.offering_id = o.id
+                                   where o.slug = {slug}
+                                     and ifo.follow_date >= now() - interval '7 days'),
+         followers_past_30_days as (select count(ifo.id) as count_30_days
+                                    from primary_facade.investor_followed_offering ifo
+                                             join primary_facade.offering o on ifo.offering_id = o.id
+                                    where o.slug = {slug}
+                                      and ifo.follow_date >= now() - interval '30 days')
+    select (select total_count from total_followers)          as total_followers,
+           (select count_7_days from followers_past_7_days)   as followers_past_7_days,
+           (select count_30_days from followers_past_30_days) as followers_past_30_days;
+    """,
+    "offering_updates": """
+    with updates_past_7_days as (select count(ouq.id) as count_7_days
+                             from primary_facade.offering_update_queue ouq
+                                      join primary_facade.offering o on ouq.offering_id = o.id
+                             where o.slug = {slug}
+                               and ouq.status = 'DONE'
+                               and ouq.deployed_at >= now() - interval '7 days'),
+     updates_past_30_days as (select count(ouq.id) as count_30_days
+                              from primary_facade.offering_update_queue ouq
+                                       join primary_facade.offering o on ouq.offering_id = o.id
+                              where o.slug = {slug}
+                                and ouq.status = 'DONE'
+                                and ouq.deployed_at >= now() - interval '30 days')
+    select (select count_7_days from updates_past_7_days)   as updates_past_7_days,
+           (select count_30_days from updates_past_30_days) as updates_past_30_days;
     """
     # Additional queries can be added here in the future
 }
@@ -75,6 +110,15 @@ QUERY_FIELD_MAPPING = {
         "total_investors": {"field_name": "investors_total", "is_currency": False},
         "investors_past_7_days": {"field_name": "investors_7d", "is_currency": False},
         "investors_past_30_days": {"field_name": "investors_30d", "is_currency": False}
+    },
+    "offering_followers": {
+        "total_followers": {"field_name": "followers_total", "is_currency": False},
+        "followers_past_7_days": {"field_name": "followers_7d", "is_currency": False},
+        "followers_past_30_days": {"field_name": "followers_30d", "is_currency": False}
+    },
+    "offering_updates": {
+        "updates_past_7_days": {"field_name": "updates_7d", "is_currency": False},
+        "updates_past_30_days": {"field_name": "updates_30d", "is_currency": False}
     }
 }
 

@@ -93,16 +93,26 @@ def print_offerings_data(offerings_dict):
             print(f"   Amount Raised (7 days): {data.get('amount_raised_7d_formatted', '$0.00')}")
         if 'investors_7d' in data:
             print(f"   Investors (7 days): {safe_int(data.get('investors_7d', 0)):,}")
+        if 'followers_7d' in data:
+            print(f"   Followers (7 days): {safe_int(data.get('followers_7d', 0)):,}")
+        if 'updates_7d' in data:
+            print(f"   Updates (7 days): {safe_int(data.get('updates_7d', 0)):,}")
             
         # 30-day metrics
         if 'amount_raised_30d' in data:
             print(f"   Amount Raised (30 days): {data.get('amount_raised_30d_formatted', '$0.00')}")
         if 'investors_30d' in data:
             print(f"   Investors (30 days): {safe_int(data.get('investors_30d', 0)):,}")
+        if 'followers_30d' in data:
+            print(f"   Followers (30 days): {safe_int(data.get('followers_30d', 0)):,}")
+        if 'updates_30d' in data:
+            print(f"   Updates (30 days): {safe_int(data.get('updates_30d', 0)):,}")
             
-        # Total investors
+        # Total counts
         if 'investors_total' in data:
             print(f"   Total Investors: {safe_int(data.get('investors_total', 0)):,}")
+        if 'followers_total' in data:
+            print(f"   Total Followers: {safe_int(data.get('followers_total', 0)):,}")
             
         print("-" * 100)
     
@@ -136,10 +146,15 @@ def print_detailed_offerings_summary(all_offerings_data):
     SUMMARY_FIELD_MAPPING = {
         # Field_name: (display name, is_currency)
         'investors_total': ('Total investors across all offerings', False),
+        'followers_total': ('Total followers across all offerings', False),
         'amount_raised_7d': ('Total amount raised in last 7 days', True),
         'amount_raised_30d': ('Total amount raised in last 30 days', True),
         'investors_7d': ('Total new investors in last 7 days', False),
         'investors_30d': ('Total new investors in last 30 days', False),
+        'followers_7d': ('Total new followers in last 7 days', False),
+        'followers_30d': ('Total new followers in last 30 days', False),
+        'updates_7d': ('Total updates in last 7 days', False),
+        'updates_30d': ('Total updates in last 30 days', False),
     }
     
     # Calculate totals dynamically
@@ -183,21 +198,26 @@ def print_detailed_offering_list(all_offerings_data):
             'title': None,  # Top level doesn't need a title
             'fields': [
                 ('amount_raised', 'Total Amount Raised', True),
-                ('investors_total', 'Total Investors', False)
+                ('investors_total', 'Total Investors', False),
+                ('followers_total', 'Total Followers', False)
             ]
         },
         '7d': {
             'title': 'Last 7 Days:',
             'fields': [
                 ('amount_raised_7d', 'Amount Raised', True),
-                ('investors_7d', 'New Investors', False)
+                ('investors_7d', 'New Investors', False),
+                ('followers_7d', 'New Followers', False),
+                ('updates_7d', 'Updates', False)
             ]
         },
         '30d': {
             'title': 'Last 30 Days:',
             'fields': [
                 ('amount_raised_30d', 'Amount Raised', True),
-                ('investors_30d', 'New Investors', False)
+                ('investors_30d', 'New Investors', False),
+                ('followers_30d', 'New Followers', False),
+                ('updates_30d', 'Updates', False)
             ]
         }
     }

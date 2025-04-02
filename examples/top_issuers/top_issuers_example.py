@@ -19,7 +19,7 @@ load_dotenv(dotenv_path="creds.env", override=True)
 
 # Import our modular components
 from .metabase_session import PersistentMetabaseSession
-from .queries import QUERIES, QUERY_FIELD_MAPPING
+from .queries import QUERIES, QUERY_FIELD_MAPPING, get_per_offering_queries
 from .utils.sql_formatter import clean_sql_query
 from .utils.csv_processor import process_csv_results
 from .formatters import print_detailed_offerings_summary
@@ -81,11 +81,8 @@ def get_offering_data(session, slug, temp_dir, amount_raised=None, amount_raised
     
     print(f"Gathering complete data for {slug}...")
     
-    # Setup for dynamic queries
-    PER_OFFERING_QUERIES = {
-        k: v for k, v in QUERIES.items()
-        if k != "top_offerings_by_amount_raised" and "{slug}" in v
-    }
+    # Get queries for individual offerings
+    PER_OFFERING_QUERIES = get_per_offering_queries()
     
     try:
         # The issue is with double-quoting in the SQL queries

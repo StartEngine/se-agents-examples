@@ -53,7 +53,9 @@ def process_csv_results(csv_file_path):
                     numeric_cols = [
                         'amount_raised', 'amount', 'number_of_investors', 'total_raised', 
                         'raised_past_7_days', 'raised_past_30_days', 'total_investors',
-                        'investors_past_7_days', 'investors_past_30_days'
+                        'investors_past_7_days', 'investors_past_30_days', 'total_followers',
+                        'followers_past_7_days', 'followers_past_30_days', 'updates_past_7_days',
+                        'updates_past_30_days'
                     ]
                     
                     if any(term in col.lower() for term in numeric_cols) or 'count' in col.lower() or 'total' in col.lower() or 'raised' in col.lower() or 'investors' in col.lower():
