@@ -61,7 +61,7 @@ The top_issuers_example.py demonstrates a streamlined approach to retrieving and
 To run the example:
 
 ```bash
-python -m examples.top_issuers.top_issuers_example [limit] [headless]
+python -m examples.top_issuers_using_metabase.top_issuers_example [limit] [headless]
 ```
 
 - `limit`: Number of top offerings to retrieve (default: 10)
